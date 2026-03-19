@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Noto_Sans_SC, Noto_Serif_SC } from "next/font/google";
+import { AuthProvider } from "@/components/AuthProvider";
 import "./globals.css";
 
 const notoSansSC = Noto_Sans_SC({
@@ -17,8 +18,8 @@ const notoSerifSC = Noto_Serif_SC({
 });
 
 export const metadata: Metadata = {
-  title: "HomeStylo",
-  description: "买大家具前，先放进你家看看",
+  title: "HomeStylo - \u4e70\u5927\u5bb6\u5177\u524d\uff0c\u5148\u653e\u8fdb\u4f60\u5bb6\u770b\u770b",
+  description: "\u4e70\u5927\u5bb6\u5177\u524d\uff0c\u5148\u653e\u8fdb\u4f60\u5bb6\u770b\u770b",
 };
 
 export default function RootLayout({
@@ -32,7 +33,7 @@ export default function RootLayout({
       className={`${notoSansSC.variable} ${notoSerifSC.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground font-sans antialiased">
-        {children}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );
