@@ -2,8 +2,9 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { startTransition, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, ExternalLink, XCircle } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { FloorPlanView } from "@/components/layout/FloorPlanView";
 import { PRODUCT_CATEGORY_DEFINITIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -79,10 +80,12 @@ export function ResultDashboardClient({
   report,
   recommendations,
 }: ResultDashboardClientProps) {
+  const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(
     initialFurniture[0]?.id ?? null,
   );
   const [furniture, setFurniture] = useState<PlacedFurniture[]>(initialFurniture);
+  const [isBackfilling, setIsBackfilling] = useState(false);
 
   const riskChecks = useMemo(
     () =>
@@ -101,6 +104,31 @@ export function ResultDashboardClient({
         .slice(0, 8),
     [report.items],
   );
+
+  const handleBackfillRecommendations = async () => {
+    if (isBackfilling) {
+      return;
+    }
+
+    setIsBackfilling(true);
+    try {
+      const response = await fetch("/api/recommend/furniture", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scheme_id: schemeId }),
+      });
+
+      if (!response.ok) {
+        throw new Error("推荐接口调用失败");
+      }
+
+      startTransition(() => {
+        router.refresh();
+      });
+    } finally {
+      setIsBackfilling(false);
+    }
+  };
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
@@ -272,13 +300,20 @@ export function ResultDashboardClient({
               })}
             </div>
           ) : (
-            <p className="rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              暂无推荐商品。请先回到生成页执行推荐流程。
-            </p>
+            <div className="space-y-3 rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
+              <p>暂无推荐商品，你可以一键补全推荐清单。</p>
+              <button
+                type="button"
+                onClick={handleBackfillRecommendations}
+                disabled={isBackfilling}
+                className="inline-flex h-9 items-center justify-center rounded-lg bg-[#8B5A37] px-3 text-xs font-semibold text-white transition-colors hover:bg-[#754a2f] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isBackfilling ? "正在补全..." : "一键补全推荐"}
+              </button>
+            </div>
           )}
         </article>
       </section>
     </main>
   );
 }
-

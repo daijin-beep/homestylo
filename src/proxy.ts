@@ -33,7 +33,7 @@ function isProtectedRoute(pathname: string) {
   );
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
 
   if (isPublicRoute(pathname)) {
@@ -41,7 +41,6 @@ export async function middleware(request: NextRequest) {
   }
 
   const protectedRoute = isProtectedRoute(pathname);
-
   const { response, user } = await refreshAuthSession(request);
 
   if (!protectedRoute) {
@@ -64,3 +63,4 @@ export async function middleware(request: NextRequest) {
 export const config = {
   matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };
+
