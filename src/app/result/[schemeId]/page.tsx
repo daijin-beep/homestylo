@@ -43,6 +43,23 @@ interface ProductRow {
   category: string;
 }
 
+interface EffectImageRow {
+  generation_status: string;
+  image_url: string | null;
+  error_message: string | null;
+  hotspot_map:
+    | Array<{
+        productId?: string;
+        product_id?: string;
+        label?: string;
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+      }>
+    | null;
+}
+
 function ensureNumber(value: unknown, fallback: number) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return value;
@@ -284,6 +301,14 @@ export default async function ResultPage({ params }: ResultPageProps) {
     .eq("scheme_id", schemeId)
     .single<RoomAnalysisRow>();
 
+  const { data: effectImage } = await supabase
+    .from("effect_images")
+    .select("generation_status, image_url, error_message, hotspot_map")
+    .eq("scheme_id", schemeId)
+    .order("version", { ascending: false })
+    .limit(1)
+    .maybeSingle<EffectImageRow>();
+
   const { data: schemeProducts } = await supabase
     .from("scheme_products")
     .select("id, product_id, category, notes")
@@ -353,6 +378,41 @@ export default async function ResultPage({ params }: ResultPageProps) {
     toValidationFurniture(products),
   );
 
+  const normalizedEffectImage = effectImage
+    ? {
+        status: effectImage.generation_status,
+        imageUrl: effectImage.image_url || null,
+        errorMessage: effectImage.error_message || null,
+        hotspots: (effectImage.hotspot_map ?? [])
+          .map((item) => {
+            const productId =
+              typeof item.productId === "string"
+                ? item.productId
+                : typeof item.product_id === "string"
+                  ? item.product_id
+                  : null;
+
+            if (!productId || typeof item.x !== "number" || typeof item.y !== "number") {
+              return null;
+            }
+
+            return {
+              productId,
+              label: typeof item.label === "string" ? item.label : productId,
+              x: Math.max(0, Math.min(1, item.x)),
+              y: Math.max(0, Math.min(1, item.y)),
+              width:
+                typeof item.width === "number" ? Math.max(0, Math.min(1, item.width)) : 0.1,
+              height:
+                typeof item.height === "number"
+                  ? Math.max(0, Math.min(1, item.height))
+                  : 0.1,
+            };
+          })
+          .filter((item): item is NonNullable<typeof item> => item !== null),
+      }
+    : null;
+
   return (
     <ResultDashboardClient
       schemeId={scheme.id}
@@ -360,7 +420,7 @@ export default async function ResultPage({ params }: ResultPageProps) {
       initialFurniture={placedFurniture}
       report={report}
       recommendations={recommendations}
+      effectImage={normalizedEffectImage}
     />
   );
 }
-

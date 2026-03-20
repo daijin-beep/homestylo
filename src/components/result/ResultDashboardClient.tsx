@@ -2,8 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { startTransition, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ExternalLink, XCircle } from "lucide-react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, CheckCircle2, ExternalLink, Sparkles, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FloorPlanView } from "@/components/layout/FloorPlanView";
 import { PRODUCT_CATEGORY_DEFINITIONS } from "@/lib/constants";
@@ -29,13 +29,32 @@ export interface ResultRecommendationItem {
   };
 }
 
+export interface ResultEffectHotspot {
+  productId: string;
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ResultEffectImage {
+  status: string;
+  imageUrl: string | null;
+  hotspots: ResultEffectHotspot[];
+  errorMessage: string | null;
+}
+
 interface ResultDashboardClientProps {
   schemeId: string;
   room: RoomPlanDimensions;
   initialFurniture: PlacedFurniture[];
   report: ValidationReport;
   recommendations: ResultRecommendationItem[];
+  effectImage: ResultEffectImage | null;
 }
+
+const GENERATING_STATUSES = new Set(["pending", "depth", "flux", "hotspot"]);
 
 const STATUS_TEXT: Record<ValidationReport["overallStatus"], string> = {
   pass: "尺寸校验通过",
@@ -73,12 +92,61 @@ function formatPrice(min: number, max: number) {
   return `¥${new Intl.NumberFormat("zh-CN").format(min)} - ¥${new Intl.NumberFormat("zh-CN").format(max)}`;
 }
 
+function normalizeHotspots(raw: unknown): ResultEffectHotspot[] {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+
+  const hotspots: ResultEffectHotspot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") {
+      continue;
+    }
+
+    const record = item as Record<string, unknown>;
+    const rawId =
+      typeof record.productId === "string"
+        ? record.productId
+        : typeof record.product_id === "string"
+          ? record.product_id
+          : null;
+
+    if (!rawId) {
+      continue;
+    }
+
+    const x = typeof record.x === "number" ? record.x : NaN;
+    const y = typeof record.y === "number" ? record.y : NaN;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      continue;
+    }
+
+    hotspots.push({
+      productId: rawId,
+      label: typeof record.label === "string" ? record.label : rawId,
+      x: Math.max(0, Math.min(1, x)),
+      y: Math.max(0, Math.min(1, y)),
+      width:
+        typeof record.width === "number"
+          ? Math.max(0, Math.min(1, record.width))
+          : 0.1,
+      height:
+        typeof record.height === "number"
+          ? Math.max(0, Math.min(1, record.height))
+          : 0.1,
+    });
+  }
+
+  return hotspots;
+}
+
 export function ResultDashboardClient({
   schemeId,
   room,
   initialFurniture,
   report,
   recommendations,
+  effectImage,
 }: ResultDashboardClientProps) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -86,6 +154,78 @@ export function ResultDashboardClient({
   );
   const [furniture, setFurniture] = useState<PlacedFurniture[]>(initialFurniture);
   const [isBackfilling, setIsBackfilling] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [localEffectImage, setLocalEffectImage] = useState<ResultEffectImage | null>(
+    effectImage,
+  );
+  const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
+  const recommendationRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    setLocalEffectImage(effectImage);
+  }, [effectImage]);
+
+  useEffect(() => {
+    if (!highlightedProductId) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setHighlightedProductId(null);
+    }, 2800);
+
+    return () => window.clearTimeout(timer);
+  }, [highlightedProductId]);
+
+  useEffect(() => {
+    if (!localEffectImage || !GENERATING_STATUSES.has(localEffectImage.status)) {
+      return;
+    }
+
+    let active = true;
+    const timer = window.setInterval(async () => {
+      if (!active) {
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/generate/status?scheme_id=${schemeId}`, {
+          cache: "no-store",
+        });
+        const payload = (await response.json()) as {
+          success?: boolean;
+          status?: string;
+          imageUrl?: string | null;
+          errorMessage?: string | null;
+          hotspots?: unknown;
+        };
+
+        if (!response.ok || payload.success === false) {
+          return;
+        }
+
+        setLocalEffectImage({
+          status: payload.status ?? "pending",
+          imageUrl: payload.imageUrl ?? null,
+          errorMessage: payload.errorMessage ?? null,
+          hotspots: normalizeHotspots(payload.hotspots),
+        });
+
+        if (payload.status === "done") {
+          startTransition(() => {
+            router.refresh();
+          });
+        }
+      } catch {
+        // Ignore polling error and continue.
+      }
+    }, 2000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [localEffectImage, router, schemeId]);
 
   const riskChecks = useMemo(
     () =>
@@ -130,26 +270,149 @@ export function ResultDashboardClient({
     }
   };
 
+  const handleRegenerateEffectImage = async () => {
+    if (isRegenerating) {
+      return;
+    }
+
+    setIsRegenerating(true);
+    try {
+      const response = await fetch("/api/generate/effect-image", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ scheme_id: schemeId }),
+      });
+      const payload = (await response.json()) as { success?: boolean };
+
+      if (!response.ok || payload.success === false) {
+        throw new Error("效果图任务创建失败。");
+      }
+
+      setLocalEffectImage({
+        status: "pending",
+        imageUrl: null,
+        hotspots: [],
+        errorMessage: null,
+      });
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
+
+  const handleHotspotClick = (productId: string) => {
+    setHighlightedProductId(productId);
+    const target = recommendationRefs.current[productId];
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
+  const renderEffectArea = () => {
+    const status = localEffectImage?.status ?? "none";
+    const isGenerating = GENERATING_STATUSES.has(status);
+    const isDone = status === "done" && Boolean(localEffectImage?.imageUrl);
+    const isFailed = status === "failed" || status === "none";
+
+    return (
+      <section className="rounded-2xl border border-border bg-white p-4 md:p-5">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-[#8B5A37]" />
+            <h2 className="text-lg font-semibold text-foreground">AI 效果图</h2>
+          </div>
+          <button
+            type="button"
+            onClick={handleRegenerateEffectImage}
+            disabled={isRegenerating}
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isRegenerating ? "重新生成中..." : "重新生成"}
+          </button>
+        </div>
+
+        {isDone ? (
+          <div className="space-y-3">
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-[#f8f7f3]">
+              <div className="absolute right-3 top-3 z-10 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white">
+                AI生成效果图
+              </div>
+              <div className="relative aspect-[4/3] w-full">
+                <Image
+                  src={localEffectImage?.imageUrl ?? ""}
+                  alt="AI效果图"
+                  fill
+                  className="object-cover"
+                  sizes="(max-width: 1024px) 100vw, 1200px"
+                  unoptimized
+                />
+
+                {localEffectImage?.hotspots.map((hotspot) => (
+                  <button
+                    key={`${hotspot.productId}-${hotspot.x}-${hotspot.y}`}
+                    type="button"
+                    title={hotspot.label}
+                    onClick={() => handleHotspotClick(hotspot.productId)}
+                    className="group absolute -translate-x-1/2 -translate-y-1/2"
+                    style={{
+                      left: `${hotspot.x * 100}%`,
+                      top: `${hotspot.y * 100}%`,
+                    }}
+                  >
+                    <span className="absolute inset-0 animate-ping rounded-full bg-[#8B5A37]/25" />
+                    <span className="relative inline-flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#8B5A37] bg-white/80 text-xs font-semibold text-[#8B5A37] shadow-sm sm:h-10 sm:w-10">
+                      点
+                    </span>
+                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/75 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
+                      {hotspot.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              点击热点可快速定位并高亮下方推荐清单中的对应商品。
+            </p>
+          </div>
+        ) : null}
+
+        {isGenerating ? (
+          <div className="space-y-3">
+            <div className="relative overflow-hidden rounded-2xl border border-border bg-[#f8f7f3]">
+              <div className="aspect-[4/3] w-full animate-pulse bg-gradient-to-br from-[#efe6d8] via-[#f8f3ea] to-[#ece1cf]" />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <p className="rounded-full bg-black/60 px-4 py-2 text-sm text-white">
+                  效果图生成中...
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              当前阶段：{status}，页面会自动刷新最新结果。
+            </p>
+          </div>
+        ) : null}
+
+        {isFailed ? (
+          <div className="space-y-3 rounded-xl border border-dashed border-border bg-[#faf8f2] px-4 py-6 text-center">
+            <p className="text-sm text-muted-foreground">
+              {localEffectImage?.errorMessage ?? "效果图暂未生成或生成失败。"}
+            </p>
+            <button
+              type="button"
+              onClick={handleRegenerateEffectImage}
+              disabled={isRegenerating}
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRegenerating ? "正在提交任务..." : "重新生成效果图"}
+            </button>
+          </div>
+        ) : null}
+      </section>
+    );
+  };
+
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
-      <section className="rounded-2xl border border-border bg-white p-5">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="space-y-2">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              {`方案 ${schemeId.slice(0, 8)}`}
-            </p>
-            <h1 className="font-serif text-2xl font-semibold text-foreground md:text-3xl">
-              {"空间校验与推荐结果"}
-            </h1>
-          </div>
-          <Link
-            href={`/generate/loading?scheme_id=${schemeId}`}
-            className="inline-flex h-10 items-center justify-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f]"
-          >
-            重新生成效果图
-          </Link>
-        </div>
-      </section>
+      {renderEffectArea()}
 
       <section
         className="rounded-2xl border border-border bg-white p-5"
@@ -203,23 +466,10 @@ export function ResultDashboardClient({
             ))
           ) : (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              当前校验没有发现明显冲突，可以直接进入效果图生成。
+              当前校验没有发现明显冲突，可以继续保持该布局方案。
             </div>
           )}
         </div>
-
-        {report.suggestions.length > 0 ? (
-          <div className="mt-4 space-y-2">
-            {report.suggestions.map((suggestion) => (
-              <p
-                key={suggestion}
-                className="rounded-lg border border-[#e8dcca] bg-[#fff8eb] px-3 py-2 text-sm text-[#7a5b2f]"
-              >
-                {suggestion}
-              </p>
-            ))}
-          </div>
-        ) : null}
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.45fr_1fr]">
@@ -239,7 +489,16 @@ export function ResultDashboardClient({
         </article>
 
         <article className="rounded-2xl border border-border bg-white p-4">
-          <h2 className="mb-3 text-lg font-semibold text-foreground">推荐清单</h2>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold text-foreground">推荐清单</h2>
+            <Link
+              href={`/generate/loading?scheme_id=${schemeId}`}
+              className="text-xs font-medium text-[#8B5A37] hover:underline"
+            >
+              重新跑全流程
+            </Link>
+          </div>
+
           {recommendations.length > 0 ? (
             <div className="space-y-3">
               {recommendations.map((item) => {
@@ -251,7 +510,15 @@ export function ResultDashboardClient({
                 return (
                   <div
                     key={item.schemeProductId}
-                    className="rounded-xl border border-border bg-[#faf8f2] p-3"
+                    ref={(element) => {
+                      recommendationRefs.current[item.product.id] = element;
+                    }}
+                    className={cn(
+                      "rounded-xl border bg-[#faf8f2] p-3 transition-all",
+                      highlightedProductId === item.product.id
+                        ? "border-[#8B5A37] ring-2 ring-[#8B5A37]/25"
+                        : "border-border",
+                    )}
                   >
                     <div className="flex gap-3">
                       <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border">
@@ -317,3 +584,4 @@ export function ResultDashboardClient({
     </main>
   );
 }
+

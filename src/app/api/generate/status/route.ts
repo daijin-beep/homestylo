@@ -7,6 +7,18 @@ interface EffectImageStatusRow {
   error_message: string | null;
   version: number;
   generation_params: Record<string, unknown> | null;
+  hotspot_map:
+    | Array<{
+        productId?: string;
+        product_id?: string;
+        label?: string;
+        x?: number;
+        y?: number;
+        width?: number;
+        height?: number;
+        confidence?: number;
+      }>
+    | null;
 }
 
 function createServiceRoleClient() {
@@ -40,7 +52,9 @@ export async function GET(request: Request) {
     const supabase = createServiceRoleClient();
     const { data: record, error } = await supabase
       .from("effect_images")
-      .select("generation_status, image_url, error_message, version, generation_params")
+      .select(
+        "generation_status, image_url, error_message, version, generation_params, hotspot_map",
+      )
       .eq("scheme_id", schemeId)
       .order("version", { ascending: false })
       .limit(1)
@@ -55,6 +69,7 @@ export async function GET(request: Request) {
           errorMessage: null,
           version: 0,
           params: null,
+          hotspots: [],
         },
         { status: 200 },
       );
@@ -67,6 +82,7 @@ export async function GET(request: Request) {
       errorMessage: record.error_message || null,
       version: record.version,
       params: record.generation_params,
+      hotspots: record.hotspot_map ?? [],
     });
   } catch (error) {
     const message =
@@ -74,4 +90,3 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-
