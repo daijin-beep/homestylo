@@ -1,84 +1,121 @@
 "use client";
 
 import Link from "next/link";
-import { Menu, X } from "lucide-react";
-import { useState } from "react";
-import { cn } from "@/lib/utils";
-import { useCandidateCount } from "@/hooks/useCandidateCount";
+import { Sparkles } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import type { User as SupabaseUser } from "@supabase/supabase-js";
+import { useAuth } from "@/components/AuthProvider";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
-const navItems = [
-  {
-    label: "\u5546\u54c1",
-    href: "/products",
-  },
-  {
-    label: "\u6211\u7684\u5019\u9009",
-    href: "/candidates",
-  },
-];
+function getUserBadge(user: SupabaseUser | null) {
+  if (!user?.phone) {
+    return "\u7528\u6237";
+  }
+
+  const lastFour = user.phone.replace(/\D/g, "").slice(-4);
+  return lastFour ? lastFour : "\u7528\u6237";
+}
 
 export function Navbar() {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { count } = useCandidateCount();
+  const pathname = usePathname();
+  const router = useRouter();
+  const [supabase] = useState(() => getSupabaseBrowserClient());
+  const { user } = useAuth();
+  const [activeUser, setActiveUser] = useState<SupabaseUser | null>(user);
+
+  useEffect(() => {
+    setActiveUser(user);
+  }, [user]);
+
+  useEffect(() => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setActiveUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, [supabase]);
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    router.push("/");
+    router.refresh();
+  };
+
+  if (pathname === "/generate/loading") {
+    return null;
+  }
 
   return (
-    <header className="sticky top-0 z-50 h-14 border-b border-border bg-white/95 backdrop-blur">
+    <header className="sticky top-0 z-50 h-14 border-b border-[#E5E5E5] bg-white">
       <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between px-4 md:px-8">
-        <Link href="/" className="text-[20px] font-bold tracking-tight text-foreground">
+        <Link
+          href="/"
+          className="font-serif text-[20px] font-bold tracking-tight text-[#8B5A37]"
+        >
           HomeStylo
         </Link>
 
-        <nav className="hidden items-center gap-6 md:flex">
-          {navItems.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="relative text-sm font-medium text-foreground transition-colors hover:text-primary"
-            >
-              {item.label}
-              {item.href === "/candidates" && count > 0 ? (
-                <span className="absolute -right-4 -top-2 inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold text-white">
-                  {count}
-                </span>
-              ) : null}
-            </Link>
-          ))}
-        </nav>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/create"
+            className="hidden h-9 items-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f] sm:inline-flex"
+          >
+            {"\u5f00\u59cb\u8bbe\u8ba1"}
+          </Link>
+          <Link
+            href="/create"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#8B5A37] text-white sm:hidden"
+            aria-label="\u5f00\u59cb\u8bbe\u8ba1"
+          >
+            <Sparkles className="h-4 w-4" />
+          </Link>
 
-        <button
-          type="button"
-          onClick={() => setIsMobileMenuOpen((current) => !current)}
-          className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-border text-foreground md:hidden"
-          aria-label={isMobileMenuOpen ? "\u5173\u95ed\u83dc\u5355" : "\u6253\u5f00\u83dc\u5355"}
-          aria-expanded={isMobileMenuOpen}
-        >
-          {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
-      </div>
-
-      <div
-        className={cn(
-          "border-b border-border bg-white px-4 pb-4 md:hidden",
-          isMobileMenuOpen ? "block" : "hidden",
-        )}
-      >
-        <nav className="flex flex-col gap-3 pt-2">
-          {navItems.map((item) => (
+          {!activeUser ? (
             <Link
-              key={item.href}
-              href={item.href}
-              onClick={() => setIsMobileMenuOpen(false)}
-              className="flex items-center justify-between rounded-md px-2 py-2 text-sm font-medium text-foreground hover:bg-muted"
+              href="/login"
+              className="px-2 text-sm font-medium text-foreground transition-colors hover:text-[#8B5A37]"
             >
-              <span>{item.label}</span>
-              {item.href === "/candidates" && count > 0 ? (
-                <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-semibold text-white">
-                  {count}
-                </span>
-              ) : null}
+              {"\u767b\u5f55"}
             </Link>
-          ))}
-        </nav>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-border bg-[#F5F0E9] px-2 text-xs font-semibold text-[#8B5A37]"
+                  aria-label="\u7528\u6237\u83dc\u5355"
+                >
+                  {getUserBadge(activeUser)}
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuItem asChild>
+                  <Link href="/dashboard">{"\u6211\u7684\u65b9\u6848"}</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleSignOut();
+                  }}
+                >
+                  {"\u9000\u51fa\u767b\u5f55"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </div>
     </header>
   );

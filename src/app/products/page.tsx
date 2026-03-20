@@ -51,6 +51,16 @@ export default async function ProductsPage() {
 
   return (
     <main className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-8 px-4 py-8 md:px-8">
+      <section className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p className="font-medium">{"旧商品列表流程已弃用"}</p>
+        <p>
+          {"推荐使用新的一体化创建页："}
+          <Link href="/create" className="ml-1 font-semibold underline">
+            {"/create"}
+          </Link>
+        </p>
+      </section>
+
       <section className="overflow-hidden rounded-2xl border border-border bg-card">
         <div className="relative h-48 w-full md:h-64">
           <Image

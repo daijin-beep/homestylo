@@ -318,6 +318,12 @@ export default function CreatePage() {
           user_id: user.id,
           room_type: state.roomType,
           style: state.selectedStyle,
+          aesthetic_preferences: {
+            style: state.selectedStyle,
+            moodboards: state.selectedMoodboards,
+            colors: state.selectedColors,
+            reference_photo_urls: referencePhotoUrls,
+          },
           status: "analyzing",
         })
         .select("*")
@@ -351,16 +357,6 @@ export default function CreatePage() {
       if (roomAnalysisError || !roomAnalysis) {
         throw new Error(roomAnalysisError?.message ?? "创建空间分析记录失败。");
       }
-
-      window.localStorage.setItem(
-        `homestylo_aesthetic_${scheme.id}`,
-        JSON.stringify({
-          style: state.selectedStyle,
-          moodboards: state.selectedMoodboards,
-          colors: state.selectedColors,
-          referencePhotoUrls,
-        }),
-      );
 
       setScheme(scheme);
       setRoomAnalysis(roomAnalysis);

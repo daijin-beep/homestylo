@@ -119,6 +119,16 @@ export default async function ProductDetailPage({ params }: ProductDetailPagePro
         {"\u8fd4\u56de\u5217\u8868"}
       </Link>
 
+      <section className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        <p className="font-medium">{"旧商品详情流程已弃用"}</p>
+        <p>
+          {"建议直接前往新入口："}
+          <Link href="/create" className="ml-1 font-semibold underline">
+            {"/create"}
+          </Link>
+        </p>
+      </section>
+
       <section className="relative w-full overflow-hidden rounded-2xl border border-border bg-card">
         <div className="relative h-[48vh] max-h-[60vh] min-h-[280px] w-full">
           <Image

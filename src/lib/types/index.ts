@@ -38,6 +38,12 @@ export interface Scheme {
   user_id: string;
   room_type: RoomType;
   style: StyleType | null;
+  aesthetic_preferences: {
+    style: string | null;
+    moodboards: string[];
+    colors: string[];
+    reference_photo_urls: string[];
+  } | null;
   budget_min: number | null;
   budget_max: number | null;
   status: SchemeStatus;
