@@ -7,6 +7,7 @@ import {
   CircleX,
   XCircle,
 } from "lucide-react";
+import type { CSSProperties } from "react";
 import {
   Dialog,
   DialogContent,
@@ -47,16 +48,24 @@ export interface ValidationResultDialogProps {
   onCancel: () => void;
 }
 
-function getStatusIcon(status: ValidationReport["overallStatus"]) {
+function StatusIcon({
+  status,
+  className,
+  style,
+}: {
+  status: ValidationReport["overallStatus"];
+  className?: string;
+  style?: CSSProperties;
+}) {
   if (status === "pass") {
-    return CheckCircle2;
+    return <CheckCircle2 className={className} style={style} />;
   }
 
   if (status === "warning") {
-    return AlertTriangle;
+    return <AlertTriangle className={className} style={style} />;
   }
 
-  return XCircle;
+  return <XCircle className={className} style={style} />;
 }
 
 function getHeaderTitle(report: ValidationReport) {
@@ -156,7 +165,6 @@ function metricStatusForGap(gap: number | null): ValidationReport["overallStatus
 function CheckStatusTag({ status }: { status: Check["status"] }) {
   const normalizedStatus: ValidationReport["overallStatus"] =
     status === "block" ? "block" : status === "warning" ? "warning" : "pass";
-  const Icon = getStatusIcon(normalizedStatus);
 
   return (
     <span
@@ -166,21 +174,20 @@ function CheckStatusTag({ status }: { status: Check["status"] }) {
         color: STATUS_COLOR[normalizedStatus],
       }}
     >
-      <Icon className="h-3.5 w-3.5" />
+      <StatusIcon status={normalizedStatus} className="h-3.5 w-3.5" />
       {statusBadge(normalizedStatus)}
     </span>
   );
 }
 
 function ItemRow({ item }: { item: ValidationItem }) {
-  const Icon = getStatusIcon(item.status);
   const color = STATUS_COLOR[item.status];
 
   return (
     <details className="group rounded-xl border border-border bg-white">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
         <div className="flex min-w-0 items-center gap-2">
-          <Icon className="h-4 w-4 shrink-0" style={{ color }} />
+          <StatusIcon status={item.status} className="h-4 w-4 shrink-0" style={{ color }} />
           <span className="truncate text-sm font-medium text-foreground">{item.furnitureName}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -323,7 +330,6 @@ export function ValidationResultDialog({
     return null;
   }
 
-  const HeaderIcon = getStatusIcon(report.overallStatus);
   const titleColor = STATUS_COLOR[report.overallStatus];
   const isBlock = report.overallStatus === "block";
 
@@ -346,7 +352,7 @@ export function ValidationResultDialog({
       >
         <DialogHeader className="space-y-2 border-b border-border bg-white px-5 py-4 text-left">
           <div className="flex items-center gap-2">
-            <HeaderIcon className="h-5 w-5" style={{ color: titleColor }} />
+            <StatusIcon status={report.overallStatus} className="h-5 w-5" style={{ color: titleColor }} />
             <DialogTitle className="text-base font-semibold text-foreground">
               {getHeaderTitle(report)}
             </DialogTitle>
