@@ -7,6 +7,7 @@ import { validateLayout } from "@/lib/validation/dimensionValidator";
 
 interface ResultPageProps {
   params: Promise<{ schemeId: string }>;
+  searchParams?: Promise<{ v?: string }>;
 }
 
 interface SchemeRow {
@@ -44,6 +45,7 @@ interface ProductRow {
 }
 
 interface EffectImageRow {
+  version: number;
   generation_status: string;
   image_url: string | null;
   error_message: string | null;
@@ -281,8 +283,9 @@ function toValidationFurniture(products: ProductRow[]): FurnitureItem[] {
   }));
 }
 
-export default async function ResultPage({ params }: ResultPageProps) {
+export default async function ResultPage({ params, searchParams }: ResultPageProps) {
   const { schemeId } = await params;
+  const query = searchParams ? await searchParams : undefined;
   const supabase = await createClient();
 
   const { data: scheme } = await supabase
@@ -301,13 +304,12 @@ export default async function ResultPage({ params }: ResultPageProps) {
     .eq("scheme_id", schemeId)
     .single<RoomAnalysisRow>();
 
-  const { data: effectImage } = await supabase
+  const { data: effectImages } = await supabase
     .from("effect_images")
-    .select("generation_status, image_url, error_message, hotspot_map")
+    .select("version, generation_status, image_url, error_message, hotspot_map")
     .eq("scheme_id", schemeId)
-    .order("version", { ascending: false })
-    .limit(1)
-    .maybeSingle<EffectImageRow>();
+    .order("version", { ascending: true })
+    .returns<EffectImageRow[]>();
 
   const { data: schemeProducts } = await supabase
     .from("scheme_products")
@@ -378,12 +380,19 @@ export default async function ResultPage({ params }: ResultPageProps) {
     toValidationFurniture(products),
   );
 
-  const normalizedEffectImage = effectImage
+  const selectedVersion = query?.v ? Number(query.v) : NaN;
+  const selectedEffectImage =
+    effectImages && effectImages.length > 0
+      ? effectImages.find((item) => item.version === selectedVersion) ??
+        effectImages[effectImages.length - 1]
+      : null;
+
+  const normalizedEffectImage = selectedEffectImage
     ? {
-        status: effectImage.generation_status,
-        imageUrl: effectImage.image_url || null,
-        errorMessage: effectImage.error_message || null,
-        hotspots: (effectImage.hotspot_map ?? [])
+        status: selectedEffectImage.generation_status,
+        imageUrl: selectedEffectImage.image_url || null,
+        errorMessage: selectedEffectImage.error_message || null,
+        hotspots: (selectedEffectImage.hotspot_map ?? [])
           .map((item) => {
             const productId =
               typeof item.productId === "string"
@@ -413,6 +422,15 @@ export default async function ResultPage({ params }: ResultPageProps) {
       }
     : null;
 
+  const effectImageVersionMeta =
+    effectImages && effectImages.length > 0
+      ? {
+          current: selectedEffectImage?.version ?? effectImages[effectImages.length - 1].version,
+          min: effectImages[0].version,
+          max: effectImages[effectImages.length - 1].version,
+        }
+      : null;
+
   return (
     <ResultDashboardClient
       schemeId={scheme.id}
@@ -421,6 +439,7 @@ export default async function ResultPage({ params }: ResultPageProps) {
       report={report}
       recommendations={recommendations}
       effectImage={normalizedEffectImage}
+      effectImageVersion={effectImageVersionMeta}
     />
   );
 }

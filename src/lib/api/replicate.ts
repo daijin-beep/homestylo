@@ -10,6 +10,12 @@ interface ReplicatePredictionResponse {
   error?: string;
 }
 
+interface RunPredictionWithRetryOptions {
+  timeout?: number;
+  maxRetries?: number;
+  retryDelayMs?: number;
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -81,4 +87,53 @@ export async function runPrediction(
   }
 
   throw new Error("Replicate prediction timeout exceeded.");
+}
+
+function isRetryableError(error: unknown) {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+
+  const message = error.message.toLowerCase();
+  const networkLike =
+    message.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("fetch") ||
+    message.includes("network") ||
+    message.includes("socket") ||
+    message.includes("econn") ||
+    message.includes("enotfound") ||
+    message.includes("aborted");
+  const modelFailed =
+    message.includes("prediction failed") ||
+    message.includes("replicate create prediction failed") ||
+    message.includes("replicate poll failed:");
+
+  return networkLike && !modelFailed;
+}
+
+export async function runPredictionWithRetry(
+  model: string,
+  input: Record<string, unknown>,
+  options?: RunPredictionWithRetryOptions,
+): Promise<unknown> {
+  const timeoutMs = options?.timeout ?? 90000;
+  const maxRetries = options?.maxRetries ?? 2;
+  const retryDelayMs = options?.retryDelayMs ?? 3000;
+  let attempts = 0;
+
+  while (attempts <= maxRetries) {
+    try {
+      return await runPrediction(model, input, timeoutMs);
+    } catch (error) {
+      if (attempts >= maxRetries || !isRetryableError(error)) {
+        throw error;
+      }
+
+      attempts += 1;
+      await sleep(retryDelayMs);
+    }
+  }
+
+  throw new Error("Replicate prediction retry exhausted.");
 }

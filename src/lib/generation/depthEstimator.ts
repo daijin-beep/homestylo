@@ -1,6 +1,6 @@
 import "server-only";
 
-import { runPrediction } from "@/lib/api/replicate";
+import { runPredictionWithRetry } from "@/lib/api/replicate";
 import { uploadToR2 } from "@/lib/api/r2";
 
 interface DepthModelConfig {
@@ -192,10 +192,12 @@ export async function estimateDepth(
 
   for (const depthModel of DEPTH_MODELS) {
     try {
-      const output = await runPrediction(
+      const output = await runPredictionWithRetry(
         depthModel.model,
         depthModel.buildInput(imageUrl),
-        timeoutMs,
+        {
+          timeout: timeoutMs,
+        },
       );
 
       const { buffer, mimeType } = await downloadOutputBuffer(output);

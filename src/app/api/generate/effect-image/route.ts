@@ -4,6 +4,7 @@ import { estimateDepth } from "@/lib/generation/depthEstimator";
 import { renderWithFlux } from "@/lib/generation/fluxRenderer";
 import { detectHotspots } from "@/lib/generation/hotspotDetector";
 import { buildFluxPrompt } from "@/lib/generation/promptBuilder";
+import { checkGenerationEnv } from "@/lib/generation/envCheck";
 
 interface GenerateEffectImageBody {
   scheme_id?: string;
@@ -240,6 +241,18 @@ function schedulePipeline(task: () => Promise<void>) {
 
 export async function POST(request: Request) {
   try {
+    const envCheck = checkGenerationEnv();
+    if (!envCheck.ready) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `生成环境变量缺失: ${envCheck.missing.join(", ")}`,
+          missing: envCheck.missing,
+        },
+        { status: 400 },
+      );
+    }
+
     const body = (await request.json()) as GenerateEffectImageBody;
     const schemeId = body.scheme_id?.trim();
 
@@ -295,4 +308,3 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { runPrediction } from "@/lib/api/replicate";
+import { runPredictionWithRetry } from "@/lib/api/replicate";
 import { uploadToR2 } from "@/lib/api/r2";
 import { buildNegativePrompt } from "@/lib/generation/promptBuilder";
 
@@ -226,7 +226,9 @@ export async function renderWithFlux(
           delete input.controlnet_conditioning_scale;
         }
 
-        const output = await runPrediction(fluxModel.model, input, timeoutMs);
+        const output = await runPredictionWithRetry(fluxModel.model, input, {
+          timeout: timeoutMs,
+        });
         const buffer = await toImageBuffer(output);
         const key = `effect-images/${schemeId}/${Date.now()}_v1.png`;
         const imageUrl = await uploadToR2(buffer, key, "image/png");
@@ -254,4 +256,3 @@ export async function renderWithFlux(
 
   throw new Error(`FLUX 渲染失败：${errors.join(" | ")}`);
 }
-

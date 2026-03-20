@@ -52,6 +52,11 @@ interface ResultDashboardClientProps {
   report: ValidationReport;
   recommendations: ResultRecommendationItem[];
   effectImage: ResultEffectImage | null;
+  effectImageVersion: {
+    current: number;
+    min: number;
+    max: number;
+  } | null;
 }
 
 const GENERATING_STATUSES = new Set(["pending", "depth", "flux", "hotspot"]);
@@ -147,6 +152,7 @@ export function ResultDashboardClient({
   report,
   recommendations,
   effectImage,
+  effectImageVersion,
 }: ResultDashboardClientProps) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -319,15 +325,58 @@ export function ResultDashboardClient({
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5 text-[#8B5A37]" />
             <h2 className="text-lg font-semibold text-foreground">AI 效果图</h2>
+            {effectImageVersion ? (
+              <span className="rounded-full bg-[#f5f0e9] px-2 py-1 text-xs font-medium text-[#8B5A37]">
+                {`效果图 v${effectImageVersion.current}`}
+              </span>
+            ) : null}
           </div>
-          <button
-            type="button"
-            onClick={handleRegenerateEffectImage}
-            disabled={isRegenerating}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isRegenerating ? "重新生成中..." : "重新生成"}
-          </button>
+          <div className="flex items-center gap-2">
+            {effectImageVersion ? (
+              <div className="flex items-center gap-1">
+                <Link
+                  href={
+                    effectImageVersion.current > effectImageVersion.min
+                      ? `/result/${schemeId}?v=${effectImageVersion.current - 1}`
+                      : "#"
+                  }
+                  aria-disabled={effectImageVersion.current <= effectImageVersion.min}
+                  className={cn(
+                    "inline-flex h-8 items-center justify-center rounded-md border border-border px-2 text-xs font-medium transition-colors",
+                    effectImageVersion.current > effectImageVersion.min
+                      ? "bg-white text-foreground hover:bg-muted"
+                      : "pointer-events-none bg-muted text-muted-foreground",
+                  )}
+                >
+                  上一版
+                </Link>
+                <Link
+                  href={
+                    effectImageVersion.current < effectImageVersion.max
+                      ? `/result/${schemeId}?v=${effectImageVersion.current + 1}`
+                      : "#"
+                  }
+                  aria-disabled={effectImageVersion.current >= effectImageVersion.max}
+                  className={cn(
+                    "inline-flex h-8 items-center justify-center rounded-md border border-border px-2 text-xs font-medium transition-colors",
+                    effectImageVersion.current < effectImageVersion.max
+                      ? "bg-white text-foreground hover:bg-muted"
+                      : "pointer-events-none bg-muted text-muted-foreground",
+                  )}
+                >
+                  下一版
+                </Link>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleRegenerateEffectImage}
+              disabled={isRegenerating}
+              className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isRegenerating ? "重新生成中..." : "重新生成"}
+            </button>
+          </div>
         </div>
 
         {isDone ? (
@@ -584,4 +633,3 @@ export function ResultDashboardClient({
     </main>
   );
 }
-
