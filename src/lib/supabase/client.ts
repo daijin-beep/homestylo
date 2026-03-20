@@ -17,3 +17,5 @@ export function getSupabaseBrowserClient() {
 
   return browserClient;
 }
+
+export const createClient = getSupabaseBrowserClient;
