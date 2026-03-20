@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { UploadCloud, X } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
@@ -77,11 +78,17 @@ export function ReferenceUpload({
       {previews.length > 0 ? (
         <div className="grid grid-cols-3 gap-3">
           {previews.map((preview, index) => (
-            <div key={`${preview}-${index}`} className="relative overflow-hidden rounded-xl">
-              <img
+            <div
+              key={`${preview}-${index}`}
+              className="relative h-24 overflow-hidden rounded-xl"
+            >
+              <Image
                 src={preview}
                 alt={`reference-${index + 1}`}
-                className="h-24 w-full object-cover"
+                fill
+                unoptimized
+                sizes="160px"
+                className="object-cover"
               />
               <Button
                 type="button"

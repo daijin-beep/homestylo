@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Camera, UploadCloud } from "lucide-react";
 import { useDropzone } from "react-dropzone";
 import { Button } from "@/components/ui/button";
@@ -65,10 +66,13 @@ export function PhotoUploadSection({
 
         {preview ? (
           <div className="relative h-full min-h-[160px] w-full">
-            <img
+            <Image
               src={preview}
               alt={title}
-              className="h-full w-full rounded-xl object-cover"
+              fill
+              unoptimized
+              sizes="100vw"
+              className="rounded-xl object-cover"
             />
             <Button
               type="button"
