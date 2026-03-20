@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { RoomType } from "@/lib/types";
+import type { RoomAnalysis, RoomType, Scheme } from "@/lib/types";
 import { useAuth } from "@/components/AuthProvider";
 import { BottomBar } from "@/components/create/BottomBar";
 import { ColorPicker } from "@/components/create/ColorPicker";
@@ -15,9 +15,16 @@ import { PhotoUploadSection } from "@/components/create/PhotoUploadSection";
 import { ReferenceUpload } from "@/components/create/ReferenceUpload";
 import { RoomTypeSelector } from "@/components/create/RoomTypeSelector";
 import { StyleSelector } from "@/components/create/StyleSelector";
+import { ValidationResultDialog } from "@/components/create/ValidationResultDialog";
 import { toast } from "sonner";
 import { useSchemeStore } from "@/lib/store/schemeStore";
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import {
+  validateLayout,
+  type FurnitureItem,
+  type RoomDimensions,
+  type ValidationReport,
+} from "@/lib/validation/dimensionValidator";
 
 interface CreatePageState {
   roomPhoto: File | null;
@@ -43,6 +50,11 @@ interface PersistedCreateState {
   selectedColors: string[];
 }
 
+interface PendingSubmission {
+  scheme: Scheme;
+  roomAnalysis: RoomAnalysis;
+}
+
 const INITIAL_STATE: CreatePageState = {
   roomPhoto: null,
   roomPhotoPreview: null,
@@ -64,6 +76,44 @@ const INITIAL_STATE: CreatePageState = {
 
 const CREATE_STATE_STORAGE_KEY = "homestylo_create_state";
 const ROOM_PHOTO_BUCKET = "room-photos";
+const DEFAULT_VALIDATION_FURNITURE: FurnitureItem[] = [
+  {
+    id: "sofa-standard",
+    name: "三人位沙发",
+    category: "sofa",
+    widthMm: 2600,
+    depthMm: 980,
+    heightMm: 850,
+    placement: "sofa_wall",
+  },
+  {
+    id: "tv-cabinet-standard",
+    name: "电视柜",
+    category: "tv_cabinet",
+    widthMm: 2000,
+    depthMm: 420,
+    heightMm: 580,
+    placement: "tv_wall",
+  },
+  {
+    id: "coffee-table-standard",
+    name: "茶几",
+    category: "coffee_table",
+    widthMm: 1300,
+    depthMm: 650,
+    heightMm: 420,
+    placement: "center",
+  },
+  {
+    id: "rug-standard",
+    name: "客厅地毯",
+    category: "rug",
+    widthMm: 3200,
+    depthMm: 2000,
+    heightMm: 30,
+    placement: "center",
+  },
+];
 
 function removeFromArrayByIndex<T>(list: T[], index: number) {
   return list.filter((_, listIndex) => listIndex !== index);
@@ -77,6 +127,30 @@ function normalizeArray(value: unknown) {
   return value.filter((item): item is string => typeof item === "string");
 }
 
+function toPositiveNumberOrNull(value: number | null) {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return null;
+  }
+
+  return value;
+}
+
+function buildValidationRoomDimensions(
+  dimensions: PrecisionDimensions,
+): RoomDimensions | null {
+  const sofaWallWidthMm = toPositiveNumberOrNull(dimensions.sofaWallWidth);
+  if (!sofaWallWidthMm) {
+    return null;
+  }
+
+  return {
+    sofaWallWidthMm,
+    tvWallWidthMm: sofaWallWidthMm,
+    roomDepthMm: toPositiveNumberOrNull(dimensions.roomDepth),
+    ceilingHeightMm: toPositiveNumberOrNull(dimensions.ceilingHeight),
+  };
+}
+
 export default function CreatePage() {
   const router = useRouter();
   const [supabase] = useState(() => getSupabaseBrowserClient());
@@ -84,6 +158,11 @@ export default function CreatePage() {
   const { setScheme, setRoomAnalysis, setStep, setLoading } = useSchemeStore();
   const [state, setState] = useState<CreatePageState>(INITIAL_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingSubmission, setPendingSubmission] = useState<PendingSubmission | null>(
+    null,
+  );
+  const [validationReport, setValidationReport] = useState<ValidationReport | null>(null);
+  const [isValidationDialogOpen, setIsValidationDialogOpen] = useState(false);
   const objectUrlsRef = useRef<string[]>([]);
 
   const registerObjectUrl = (url: string) => {
@@ -276,6 +355,41 @@ export default function CreatePage() {
     selectedColors: state.selectedColors,
   });
 
+  const proceedToGenerate = (submission: PendingSubmission) => {
+    setScheme(submission.scheme);
+    setRoomAnalysis(submission.roomAnalysis);
+    setStep("analyze");
+
+    void fetch("/api/room/analyze", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scheme_id: submission.scheme.id }),
+    });
+
+    router.push(`/generate/loading?scheme_id=${submission.scheme.id}`);
+  };
+
+  const handleValidationConfirm = () => {
+    if (!pendingSubmission) {
+      setIsValidationDialogOpen(false);
+      setValidationReport(null);
+      return;
+    }
+
+    const submission = pendingSubmission;
+    setIsValidationDialogOpen(false);
+    setPendingSubmission(null);
+    setValidationReport(null);
+    proceedToGenerate(submission);
+  };
+
+  const handleValidationCancel = () => {
+    setIsValidationDialogOpen(false);
+    setPendingSubmission(null);
+    setValidationReport(null);
+    toast.info("已返回创建页，你可以先调整尺寸后再生成。");
+  };
+
   const handleSubmit = async () => {
     if (!canSubmit || isSubmitting) {
       return;
@@ -358,17 +472,22 @@ export default function CreatePage() {
         throw new Error(roomAnalysisError?.message ?? "创建空间分析记录失败。");
       }
 
-      setScheme(scheme);
-      setRoomAnalysis(roomAnalysis);
-      setStep("analyze");
+      const submission: PendingSubmission = {
+        scheme,
+        roomAnalysis,
+      };
+      const shouldValidate = state.precisionMode === "precision";
+      const validationRoom = buildValidationRoomDimensions(state.dimensions);
 
-      void fetch("/api/room/analyze", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scheme_id: scheme.id }),
-      });
+      if (shouldValidate && validationRoom) {
+        const report = validateLayout(validationRoom, DEFAULT_VALIDATION_FURNITURE);
+        setPendingSubmission(submission);
+        setValidationReport(report);
+        setIsValidationDialogOpen(true);
+        return;
+      }
 
-      router.push(`/generate/loading?scheme_id=${scheme.id}`);
+      proceedToGenerate(submission);
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "上传失败，请稍后重试。";
@@ -455,6 +574,13 @@ export default function CreatePage() {
         isDisabled={!canSubmit}
         isSubmitting={isSubmitting}
         onSubmit={handleSubmit}
+      />
+
+      <ValidationResultDialog
+        open={isValidationDialogOpen}
+        report={validationReport}
+        onConfirm={handleValidationConfirm}
+        onCancel={handleValidationCancel}
       />
     </main>
   );
