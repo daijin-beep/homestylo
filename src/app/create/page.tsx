@@ -360,12 +360,6 @@ export default function CreatePage() {
     setRoomAnalysis(submission.roomAnalysis);
     setStep("analyze");
 
-    void fetch("/api/room/analyze", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ scheme_id: submission.scheme.id }),
-    });
-
     router.push(`/generate/loading?scheme_id=${submission.scheme.id}`);
   };
 
