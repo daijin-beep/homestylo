@@ -15,7 +15,13 @@ const PROTECTED_ROUTE_PREFIXES = [
   "/admin",
 ];
 
-const PUBLIC_EXACT_ROUTES = new Set(["/", "/login", "/pricing"]);
+const PUBLIC_EXACT_ROUTES = new Set([
+  "/",
+  "/login",
+  "/pricing",
+  "/create",
+  "/generate/loading",
+]);
 
 function isPublicRoute(pathname: string) {
   return PUBLIC_EXACT_ROUTES.has(pathname) || pathname.startsWith("/s/");
@@ -29,11 +35,12 @@ function isProtectedRoute(pathname: string) {
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  const protectedRoute = isProtectedRoute(pathname);
 
-  if (!protectedRoute && isPublicRoute(pathname)) {
+  if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
+
+  const protectedRoute = isProtectedRoute(pathname);
 
   const { response, user } = await refreshAuthSession(request);
 
