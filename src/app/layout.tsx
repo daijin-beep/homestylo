@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Noto_Sans_SC, Noto_Serif_SC } from "next/font/google";
 import { AuthProvider } from "@/components/AuthProvider";
+import { Navbar } from "@/components/Navbar";
 import "./globals.css";
 
 const notoSansSC = Noto_Sans_SC({
@@ -33,7 +34,10 @@ export default function RootLayout({
       className={`${notoSansSC.variable} ${notoSerifSC.variable} h-full`}
     >
       <body className="min-h-full flex flex-col bg-background text-foreground font-sans antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider>
+          <Navbar />
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );
