@@ -1,10 +1,12 @@
 import { after, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { estimateDepth } from "@/lib/generation/depthEstimator";
+import { checkGenerationEnv } from "@/lib/generation/envCheck";
 import { renderWithFlux } from "@/lib/generation/fluxRenderer";
 import { detectHotspots } from "@/lib/generation/hotspotDetector";
 import { buildFluxPrompt } from "@/lib/generation/promptBuilder";
-import { checkGenerationEnv } from "@/lib/generation/envCheck";
+import { canGenerate, incrementGeneration } from "@/lib/plan/checkUsage";
+import { requireCurrentAppUser } from "@/lib/plan/userProfile";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
 
 interface GenerateEffectImageBody {
   scheme_id?: string;
@@ -28,7 +30,6 @@ interface SchemeProductRow {
   product_id: string | null;
   category: string;
   status: string | null;
-  created_at: string;
 }
 
 interface ProductRow {
@@ -43,22 +44,6 @@ interface ProductRow {
 interface EffectImageRow {
   id: string;
   version: number;
-}
-
-function createServiceRoleClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("缺少 Supabase service role 环境变量。");
-  }
-
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
 }
 
 function ensureNumber(value: unknown, fallback: number) {
@@ -106,7 +91,7 @@ async function resolveRoomPhotoUrl(
     .createSignedUrl(photoUrl, 3600);
 
   if (error || !data?.signedUrl) {
-    throw new Error("房间照片签名 URL 生成失败。");
+    throw new Error("Failed to create signed room photo URL.");
   }
 
   return data.signedUrl;
@@ -139,7 +124,7 @@ async function runPipeline(effectImageId: string, schemeId: string) {
       .single<SchemeRow>();
 
     if (schemeError || !scheme) {
-      throw new Error("方案不存在。");
+      throw new Error("Scheme not found.");
     }
 
     const { data: roomAnalysis, error: roomAnalysisError } = await supabase
@@ -149,12 +134,12 @@ async function runPipeline(effectImageId: string, schemeId: string) {
       .single<RoomAnalysisRow>();
 
     if (roomAnalysisError || !roomAnalysis) {
-      throw new Error("空间分析记录不存在。");
+      throw new Error("Room analysis record not found.");
     }
 
     const { data: schemeProducts, error: schemeProductsError } = await supabase
       .from("scheme_products")
-      .select("product_id, category, status, created_at")
+      .select("product_id, category, status")
       .eq("scheme_id", schemeId)
       .order("created_at", { ascending: false })
       .returns<SchemeProductRow[]>();
@@ -244,7 +229,9 @@ async function runPipeline(effectImageId: string, schemeId: string) {
       error_message: null,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "效果图生成失败。";
+    const message =
+      error instanceof Error ? error.message : "Effect image generation failed.";
+
     await updateEffectStatus(supabase, effectImageId, {
       generation_status: "failed",
       error_message: message,
@@ -274,7 +261,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           success: false,
-          error: `生成环境变量缺失: ${envCheck.missing.join(", ")}`,
+          error: `Missing generation environment variables: ${envCheck.missing.join(", ")}`,
           missing: envCheck.missing,
         },
         { status: 400 },
@@ -286,12 +273,41 @@ export async function POST(request: Request) {
 
     if (!schemeId) {
       return NextResponse.json(
-        { success: false, error: "缺少 scheme_id。" },
+        { success: false, error: "Missing scheme_id." },
         { status: 400 },
       );
     }
 
-    const supabase = createServiceRoleClient();
+    const { authUser, appUser, adminSupabase: supabase } =
+      await requireCurrentAppUser();
+    const generationCheck = canGenerate(appUser);
+
+    if (!generationCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PAYWALL_LIMIT",
+          reason: generationCheck.reason,
+          currentPlan: generationCheck.currentPlan,
+          suggestedPlan: generationCheck.suggestedPlan,
+        },
+        { status: 403 },
+      );
+    }
+
+    const { data: ownedSchemes, error: ownedSchemeError } = await supabase
+      .from("schemes")
+      .select("id")
+      .eq("id", schemeId)
+      .eq("user_id", authUser.id)
+      .limit(1);
+
+    if (ownedSchemeError || !ownedSchemes?.length) {
+      return NextResponse.json(
+        { success: false, error: "Scheme not found or access denied." },
+        { status: 404 },
+      );
+    }
 
     const { data: latestVersion } = await supabase
       .from("effect_images")
@@ -320,7 +336,14 @@ export async function POST(request: Request) {
       .single<EffectImageRow>();
 
     if (insertError || !effectImage) {
-      throw new Error(insertError?.message ?? "创建效果图任务失败。");
+      throw new Error(insertError?.message ?? "Failed to create effect image task.");
+    }
+
+    try {
+      await incrementGeneration(authUser.id);
+    } catch (error) {
+      await supabase.from("effect_images").delete().eq("id", effectImage.id);
+      throw error;
     }
 
     schedulePipeline(() => runPipeline(effectImage.id, schemeId));
@@ -331,8 +354,18 @@ export async function POST(request: Request) {
       version: effectImage.version,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "Authentication required.") {
+      return NextResponse.json(
+        { success: false, error: "Please sign in first." },
+        { status: 401 },
+      );
+    }
+
     const message =
-      error instanceof Error ? error.message : "创建效果图任务失败，请稍后重试。";
+      error instanceof Error
+        ? error.message
+        : "Failed to create effect image task. Please try again later.";
+
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

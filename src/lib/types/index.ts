@@ -20,7 +20,7 @@ export type GenerationStatus = "pending" | "depth" | "flux" | "sam" | "fill" | "
 export type ProductImportSource = "screenshot" | "hero_sku" | "link" | "recommendation";
 export type ProductStatus = "recommended" | "candidate" | "confirmed" | "purchased" | "abandoned";
 export type ShareType = "effect_image" | "shopping_list" | "compare";
-export type PlanType = "free" | "single" | "room" | "dual";
+export type PlanType = "free" | "trial" | "serious" | "full" | "creator";
 
 export interface User {
   id: string;
@@ -28,7 +28,11 @@ export interface User {
   nickname: string | null;
   avatar_url: string | null;
   plan_type: PlanType;
+  plan_room_limit: number;
   generation_count: number;
+  replacement_count: number;
+  replacement_daily_count: number;
+  replacement_daily_reset_at: string | null;
   created_at: string;
   updated_at: string;
 }

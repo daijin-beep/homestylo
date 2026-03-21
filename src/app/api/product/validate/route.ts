@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
-import { createClient as createAuthClient } from "@/lib/supabase/server";
+import { canGenerate, canReplace, incrementReplacement } from "@/lib/plan/checkUsage";
+import { requireCurrentAppUser } from "@/lib/plan/userProfile";
+import type { ProductCategory, StyleType } from "@/lib/types";
 import {
   getMaxRecommendedSize,
   validateLayout,
@@ -8,7 +9,6 @@ import {
   type FurnitureItem,
   type RoomDimensions,
 } from "@/lib/validation/dimensionValidator";
-import type { ProductCategory, StyleType } from "@/lib/types";
 
 interface ValidateProductBody {
   scheme_id?: string;
@@ -35,7 +35,6 @@ interface SchemeProductRow {
   product_id: string | null;
   category: ProductCategory;
   status: string | null;
-  created_at: string;
 }
 
 interface ProductRow {
@@ -47,47 +46,23 @@ interface ProductRow {
   height_mm: number;
 }
 
-function createServiceRoleClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("缺少 Supabase service role 环境变量。");
-  }
-
-  return createAdminClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
-}
-
 async function requireOwnedScheme(schemeId: string) {
-  const authSupabase = await createAuthClient();
-  const {
-    data: { user },
-    error: authError,
-  } = await authSupabase.auth.getUser();
-
-  if (authError || !user) {
-    throw new Error("请先登录后再校验商品。");
-  }
-
-  const adminSupabase = createServiceRoleClient();
+  const { authUser, appUser, adminSupabase } = await requireCurrentAppUser();
   const { data: scheme, error } = await adminSupabase
     .from("schemes")
     .select("id, user_id, style")
     .eq("id", schemeId)
-    .eq("user_id", user.id)
+    .eq("user_id", authUser.id)
     .single<OwnedSchemeRow>();
 
   if (error || !scheme) {
-    throw new Error("方案不存在或无权访问。");
+    throw new Error("Scheme not found or access denied.");
   }
 
   return {
     scheme,
+    authUser,
+    appUser,
     adminSupabase,
   };
 }
@@ -161,6 +136,7 @@ async function triggerEffectImageGeneration(request: Request, schemeId: string) 
     method: "POST",
     headers: {
       "content-type": "application/json",
+      cookie: request.headers.get("cookie") ?? "",
     },
     body: JSON.stringify({
       scheme_id: schemeId,
@@ -172,7 +148,7 @@ async function triggerEffectImageGeneration(request: Request, schemeId: string) 
     const payload = (await response.json().catch(() => null)) as
       | { error?: string }
       | null;
-    throw new Error(payload?.error ?? "触发效果图重绘失败。");
+    throw new Error(payload?.error ?? "Failed to trigger effect image regeneration.");
   }
 
   return (await response.json()) as {
@@ -192,12 +168,42 @@ export async function POST(request: Request) {
 
     if (!schemeId || !productId || !category) {
       return NextResponse.json(
-        { success: false, error: "缺少 scheme_id、product_id 或 category。" },
+        { success: false, error: "Missing scheme_id, product_id, or category." },
         { status: 400 },
       );
     }
 
-    const { adminSupabase } = await requireOwnedScheme(schemeId);
+    const { authUser, appUser, adminSupabase } = await requireOwnedScheme(schemeId);
+    const replacementCheck = canReplace(appUser);
+
+    if (!replacementCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PAYWALL_LIMIT",
+          reason: replacementCheck.reason,
+          currentPlan: replacementCheck.currentPlan,
+          suggestedPlan: replacementCheck.suggestedPlan,
+        },
+        { status: 403 },
+      );
+    }
+
+    const generationCheck = canGenerate(appUser);
+    if (!generationCheck.allowed) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "PAYWALL_LIMIT",
+          reason: generationCheck.reason,
+          currentPlan: generationCheck.currentPlan,
+          suggestedPlan: generationCheck.suggestedPlan,
+        },
+        { status: 403 },
+      );
+    }
+
+    await incrementReplacement(authUser.id);
 
     const { data: roomAnalysis, error: roomError } = await adminSupabase
       .from("room_analysis")
@@ -207,14 +213,14 @@ export async function POST(request: Request) {
 
     if (roomError || !roomAnalysis?.constraints_json) {
       return NextResponse.json(
-        { success: false, error: "未找到可用于校验的空间尺寸数据。" },
+        { success: false, error: "Room dimensions are not available for validation." },
         { status: 404 },
       );
     }
 
     const { data: schemeProducts, error: schemeProductsError } = await adminSupabase
       .from("scheme_products")
-      .select("product_id, category, status, created_at")
+      .select("product_id, category, status")
       .eq("scheme_id", schemeId)
       .order("created_at", { ascending: false })
       .returns<SchemeProductRow[]>();
@@ -242,14 +248,14 @@ export async function POST(request: Request) {
 
     if (!targetProduct) {
       return NextResponse.json(
-        { success: false, error: "目标商品不存在。" },
+        { success: false, error: "Target product was not found." },
         { status: 404 },
       );
     }
 
     if (targetProduct.category !== category) {
       return NextResponse.json(
-        { success: false, error: "目标商品与校验品类不匹配。" },
+        { success: false, error: "Target product category does not match request." },
         { status: 400 },
       );
     }
@@ -281,7 +287,7 @@ export async function POST(request: Request) {
     let suggestion: string | undefined;
     if (status === "block") {
       const recommended = getMaxRecommendedSize(room, category);
-      suggestion = `建议将${targetProduct.name}控制在宽 ${recommended.maxWidthMm}mm、深 ${recommended.maxDepthMm}mm 以内。${recommended.reason}`;
+      suggestion = `建议将 ${targetProduct.name} 控制在宽 ${recommended.maxWidthMm}mm、深 ${recommended.maxDepthMm}mm 以内。${recommended.reason}`;
     }
 
     let generationTriggered = false;
@@ -297,7 +303,9 @@ export async function POST(request: Request) {
         generationError = generation.success === false ? generation.error ?? null : null;
       } catch (error) {
         generationError =
-          error instanceof Error ? error.message : "触发效果图重绘失败。";
+          error instanceof Error
+            ? error.message
+            : "Failed to trigger effect image regeneration.";
       }
     }
 
@@ -313,8 +321,18 @@ export async function POST(request: Request) {
       generationError,
     });
   } catch (error) {
+    if (error instanceof Error && error.message === "Authentication required.") {
+      return NextResponse.json(
+        { success: false, error: "Please sign in first." },
+        { status: 401 },
+      );
+    }
+
     const message =
-      error instanceof Error ? error.message : "商品替换校验失败，请稍后重试。";
+      error instanceof Error
+        ? error.message
+        : "Product validation failed. Please try again later.";
+
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
