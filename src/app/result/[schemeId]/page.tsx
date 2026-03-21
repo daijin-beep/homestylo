@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ResultDashboardClient } from "@/components/result/ResultDashboardClient";
+import { requireCurrentAppUser } from "@/lib/plan/userProfile";
 import { createClient } from "@/lib/supabase/server";
 import type { PlacedFurniture, RoomPlanDimensions } from "@/lib/layout/types";
 import type { FurnitureItem, ValidationReport } from "@/lib/validation/dimensionValidator";
@@ -313,6 +314,7 @@ export default async function ResultPage({ params, searchParams }: ResultPagePro
   const { schemeId } = await params;
   const query = searchParams ? await searchParams : undefined;
   const supabase = await createClient();
+  const { appUser } = await requireCurrentAppUser();
 
   const { data: scheme } = await supabase
     .from("schemes")
@@ -478,6 +480,7 @@ export default async function ResultPage({ params, searchParams }: ResultPagePro
       recommendations={recommendations}
       effectImage={normalizedEffectImage}
       effectImageVersion={effectImageVersionMeta}
+      currentPlan={appUser.plan_type}
     />
   );
 }

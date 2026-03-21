@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   CheckCircle2,
   ExternalLink,
@@ -45,6 +45,7 @@ export interface AccountingItem {
 interface AccountingDashboardClientProps {
   schemeId: string;
   items: AccountingItem[];
+  autoPrint?: boolean;
 }
 
 function formatCurrency(value: number | null) {
@@ -107,6 +108,7 @@ function getBudgetTone(ratio: number) {
 export function AccountingDashboardClient({
   schemeId,
   items: initialItems,
+  autoPrint = false,
 }: AccountingDashboardClientProps) {
   const [items, setItems] = useState(initialItems);
   const [activeItem, setActiveItem] = useState<AccountingItem | null>(null);
@@ -129,6 +131,18 @@ export function AccountingDashboardClient({
   }, [items]);
 
   const budgetTone = getBudgetTone(totals.ratio);
+
+  useEffect(() => {
+    if (!autoPrint) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      window.print();
+    }, 300);
+
+    return () => window.clearTimeout(timer);
+  }, [autoPrint]);
 
   const updateLocalItem = (
     schemeProductId: string,

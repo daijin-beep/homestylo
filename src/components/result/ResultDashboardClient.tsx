@@ -6,6 +6,7 @@ import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   ExternalLink,
   Loader2,
   RefreshCw,
@@ -13,10 +14,13 @@ import {
   XCircle,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { FloorPlanView } from "@/components/layout/FloorPlanView";
+import { PaywallGate } from "@/components/paywall/PaywallGate";
 import { PRODUCT_CATEGORY_DEFINITIONS } from "@/lib/constants";
-import { cn } from "@/lib/utils";
 import type { PlacedFurniture, RoomPlanDimensions } from "@/lib/layout/types";
+import type { PlanType } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import type { ValidationReport } from "@/lib/validation/dimensionValidator";
 
 export interface ResultRecommendationItem {
@@ -65,6 +69,7 @@ interface ResultDashboardClientProps {
     min: number;
     max: number;
   } | null;
+  currentPlan: PlanType;
 }
 
 const GENERATING_STATUSES = new Set(["pending", "depth", "flux", "hotspot"]);
@@ -72,7 +77,7 @@ const GENERATING_STATUSES = new Set(["pending", "depth", "flux", "hotspot"]);
 const STATUS_TEXT: Record<ValidationReport["overallStatus"], string> = {
   pass: "尺寸校验通过",
   warning: "存在尺寸风险，请关注提示",
-  block: "尺寸冲突明显，建议先调整",
+  block: "发现明显尺寸冲突，建议先调整",
 };
 
 const STATUS_COLOR: Record<ValidationReport["overallStatus"], string> = {
@@ -85,11 +90,9 @@ function getStatusIcon(status: ValidationReport["overallStatus"]) {
   if (status === "pass") {
     return <CheckCircle2 className="h-5 w-5" />;
   }
-
   if (status === "warning") {
     return <AlertTriangle className="h-5 w-5" />;
   }
-
   return <XCircle className="h-5 w-5" />;
 }
 
@@ -97,11 +100,9 @@ function formatPrice(min: number, max: number) {
   if (min <= 0 && max <= 0) {
     return "价格待补充";
   }
-
   if (min === max) {
     return `¥${new Intl.NumberFormat("zh-CN").format(min)}`;
   }
-
   return `¥${new Intl.NumberFormat("zh-CN").format(min)} - ¥${new Intl.NumberFormat(
     "zh-CN",
   ).format(max)}`;
@@ -112,47 +113,110 @@ function normalizeHotspots(raw: unknown): ResultEffectHotspot[] {
     return [];
   }
 
-  const hotspots: ResultEffectHotspot[] = [];
-  for (const item of raw) {
+  return raw.flatMap((item) => {
     if (!item || typeof item !== "object") {
-      continue;
+      return [];
     }
 
     const record = item as Record<string, unknown>;
-    const rawId =
+    const productId =
       typeof record.productId === "string"
         ? record.productId
         : typeof record.product_id === "string"
           ? record.product_id
           : null;
-
-    if (!rawId) {
-      continue;
-    }
-
     const x = typeof record.x === "number" ? record.x : Number.NaN;
     const y = typeof record.y === "number" ? record.y : Number.NaN;
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      continue;
+
+    if (!productId || !Number.isFinite(x) || !Number.isFinite(y)) {
+      return [];
     }
 
-    hotspots.push({
-      productId: rawId,
-      label: typeof record.label === "string" ? record.label : rawId,
-      x: Math.max(0, Math.min(1, x)),
-      y: Math.max(0, Math.min(1, y)),
-      width:
-        typeof record.width === "number"
-          ? Math.max(0, Math.min(1, record.width))
-          : 0.1,
-      height:
-        typeof record.height === "number"
-          ? Math.max(0, Math.min(1, record.height))
-          : 0.1,
-    });
+    return [
+      {
+        productId,
+        label: typeof record.label === "string" ? record.label : productId,
+        x: Math.max(0, Math.min(1, x)),
+        y: Math.max(0, Math.min(1, y)),
+        width:
+          typeof record.width === "number"
+            ? Math.max(0, Math.min(1, record.width))
+            : 0.1,
+        height:
+          typeof record.height === "number"
+            ? Math.max(0, Math.min(1, record.height))
+            : 0.1,
+      },
+    ];
+  });
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
+async function createWatermarkedBlob(imageUrl: string) {
+  const response = await fetch(imageUrl, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("下载效果图失败，请稍后重试。");
   }
 
-  return hotspots;
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const nextImage = new window.Image();
+      nextImage.onload = () => resolve(nextImage);
+      nextImage.onerror = () => reject(new Error("效果图加载失败。"));
+      nextImage.src = objectUrl;
+    });
+
+    const footerHeight = Math.max(88, Math.round(image.height * 0.12));
+    const canvas = document.createElement("canvas");
+    canvas.width = image.width;
+    canvas.height = image.height + footerHeight;
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error("浏览器暂不支持图片导出。");
+    }
+
+    context.fillStyle = "#f6efe4";
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, image.width, image.height);
+    context.fillStyle = "#8B5A37";
+    context.fillRect(0, image.height, canvas.width, footerHeight);
+    context.fillStyle = "#ffffff";
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.font = `${Math.max(20, Math.round(footerHeight * 0.28))}px serif`;
+    context.fillText(
+      "HomeStylo · 买大件前先放进你家看看",
+      canvas.width / 2,
+      image.height + footerHeight / 2,
+    );
+
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((nextBlob) => {
+        if (!nextBlob) {
+          reject(new Error("生成带水印图片失败。"));
+          return;
+        }
+
+        resolve(nextBlob);
+      }, "image/png");
+    });
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 export function ResultDashboardClient({
@@ -163,6 +227,7 @@ export function ResultDashboardClient({
   recommendations,
   effectImage,
   effectImageVersion,
+  currentPlan,
 }: ResultDashboardClientProps) {
   const router = useRouter();
   const [selectedId, setSelectedId] = useState<string | null>(
@@ -171,6 +236,7 @@ export function ResultDashboardClient({
   const [furniture, setFurniture] = useState<PlacedFurniture[]>(initialFurniture);
   const [isBackfilling, setIsBackfilling] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [downloadingMode, setDownloadingMode] = useState<"watermark" | "hd" | null>(null);
   const [localEffectImage, setLocalEffectImage] = useState<ResultEffectImage | null>(
     effectImage,
   );
@@ -191,10 +257,7 @@ export function ResultDashboardClient({
       return;
     }
 
-    const timer = window.setTimeout(() => {
-      setHighlightedProductId(null);
-    }, 2800);
-
+    const timer = window.setTimeout(() => setHighlightedProductId(null), 2800);
     return () => window.clearTimeout(timer);
   }, [highlightedProductId]);
 
@@ -233,12 +296,10 @@ export function ResultDashboardClient({
         });
 
         if (payload.status === "done") {
-          startTransition(() => {
-            router.refresh();
-          });
+          startTransition(() => router.refresh());
         }
       } catch {
-        // Ignore polling failures and continue next round.
+        // Ignore polling failures.
       }
     }, 2000);
 
@@ -269,6 +330,46 @@ export function ResultDashboardClient({
   const isEffectGenerating =
     localEffectImage !== null && GENERATING_STATUSES.has(localEffectImage.status);
 
+  const handleHotspotClick = (productId: string) => {
+    setHighlightedProductId(productId);
+    setSelectedId(productId);
+    recommendationRefs.current[productId]?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  };
+
+  const handlePrintShoppingList = () => {
+    window.open(`/accounting/${schemeId}?print=1`, "_blank", "noopener,noreferrer");
+  };
+
+  const handleDownloadEffectImage = async (withWatermark: boolean) => {
+    if (!localEffectImage?.imageUrl) {
+      toast.error("当前还没有可下载的效果图。");
+      return;
+    }
+
+    setDownloadingMode(withWatermark ? "watermark" : "hd");
+    try {
+      if (withWatermark) {
+        const blob = await createWatermarkedBlob(localEffectImage.imageUrl);
+        downloadBlob(blob, `homestylo-${schemeId}-watermarked.png`);
+      } else {
+        const response = await fetch(localEffectImage.imageUrl, { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("下载无水印效果图失败，请稍后重试。");
+        }
+        downloadBlob(await response.blob(), `homestylo-${schemeId}-hd.png`);
+      }
+
+      toast.success(withWatermark ? "已开始下载带水印效果图。" : "已开始下载无水印效果图。");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "效果图导出失败。");
+    } finally {
+      setDownloadingMode(null);
+    }
+  };
+
   const handleBackfillRecommendations = async () => {
     if (isBackfilling) {
       return;
@@ -283,12 +384,12 @@ export function ResultDashboardClient({
       });
 
       if (!response.ok) {
-        throw new Error("推荐接口调用失败。");
+        throw new Error("补全推荐失败，请稍后重试。");
       }
 
-      startTransition(() => {
-        router.refresh();
-      });
+      startTransition(() => router.refresh());
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "补全推荐失败。");
     } finally {
       setIsBackfilling(false);
     }
@@ -306,10 +407,14 @@ export function ResultDashboardClient({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ scheme_id: schemeId }),
       });
-      const payload = (await response.json()) as { success?: boolean };
+      const payload = (await response.json()) as {
+        success?: boolean;
+        error?: string;
+        reason?: string;
+      };
 
       if (!response.ok || payload.success === false) {
-        throw new Error("效果图任务创建失败。");
+        throw new Error(payload.reason ?? payload.error ?? "效果图任务创建失败。");
       }
 
       setLocalEffectImage({
@@ -318,29 +423,23 @@ export function ResultDashboardClient({
         hotspots: [],
         errorMessage: null,
       });
+      toast.success("已开始重新生成效果图。");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "效果图任务创建失败。");
     } finally {
       setIsRegenerating(false);
     }
   };
 
-  const handleHotspotClick = (productId: string) => {
-    setHighlightedProductId(productId);
-    setSelectedId(productId);
-    const target = recommendationRefs.current[productId];
-    if (target) {
-      target.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  };
+  const status = localEffectImage?.status ?? "none";
+  const isGenerating = GENERATING_STATUSES.has(status);
+  const isDone = status === "done" && Boolean(localEffectImage?.imageUrl);
+  const isFailed = status === "failed" || status === "none";
 
-  const renderEffectArea = () => {
-    const status = localEffectImage?.status ?? "none";
-    const isGenerating = GENERATING_STATUSES.has(status);
-    const isDone = status === "done" && Boolean(localEffectImage?.imageUrl);
-    const isFailed = status === "failed" || status === "none";
-
-    return (
+  return (
+    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
       <section className="rounded-2xl border border-border bg-white p-4 md:p-5">
-        <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap items-center gap-2">
             <Sparkles className="h-5 w-5 text-[#8B5A37]" />
             <h2 className="text-lg font-semibold text-foreground">AI 效果图</h2>
@@ -356,9 +455,9 @@ export function ResultDashboardClient({
             ) : null}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {effectImageVersion ? (
-              <div className="flex items-center gap-1">
+              <>
                 <Link
                   href={
                     effectImageVersion.current > effectImageVersion.min
@@ -391,7 +490,56 @@ export function ResultDashboardClient({
                 >
                   下一版
                 </Link>
-              </div>
+              </>
+            ) : null}
+
+            {isDone ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => void handleDownloadEffectImage(true)}
+                  disabled={downloadingMode !== null}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {downloadingMode === "watermark" ? (
+                    <>
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      导出中...
+                    </>
+                  ) : (
+                    <>
+                      <Download className="h-3.5 w-3.5" />
+                      下载带水印版
+                    </>
+                  )}
+                </button>
+
+                <PaywallGate
+                  currentPlan={currentPlan}
+                  requiredPlan="trial"
+                  suggestedPlan="trial"
+                  reason="免费体验版仅支持下载带水印效果图，升级后可导出无水印版本。"
+                >
+                  <button
+                    type="button"
+                    onClick={() => void handleDownloadEffectImage(false)}
+                    disabled={downloadingMode !== null}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {downloadingMode === "hd" ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        导出中...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-3.5 w-3.5" />
+                        下载无水印版
+                      </>
+                    )}
+                  </button>
+                </PaywallGate>
+              </>
             ) : null}
 
             <button
@@ -448,9 +596,6 @@ export function ResultDashboardClient({
                     <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#8B5A37] bg-white/80 text-xs font-semibold text-[#8B5A37] shadow-sm">
                       热点
                     </span>
-                    <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/75 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
-                      {hotspot.label}
-                    </span>
                   </button>
                 ))}
               </div>
@@ -471,34 +616,18 @@ export function ResultDashboardClient({
                 </p>
               </div>
             </div>
-            <p className="text-xs text-muted-foreground">
-              {`当前阶段：${status}，页面会自动刷新最新结果。`}
-            </p>
+            <p className="text-xs text-muted-foreground">{`当前阶段：${status}，页面会自动刷新最新结果。`}</p>
           </div>
         ) : null}
 
         {isFailed ? (
-          <div className="space-y-3 rounded-xl border border-dashed border-border bg-[#faf8f2] px-4 py-6 text-center">
+          <div className="rounded-xl border border-dashed border-border bg-[#faf8f2] px-4 py-6 text-center">
             <p className="text-sm text-muted-foreground">
               {localEffectImage?.errorMessage ?? "效果图暂未生成或生成失败。"}
             </p>
-            <button
-              type="button"
-              onClick={handleRegenerateEffectImage}
-              disabled={isRegenerating}
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isRegenerating ? "正在提交任务..." : "重新生成效果图"}
-            </button>
           </div>
         ) : null}
       </section>
-    );
-  };
-
-  return (
-    <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-6 md:px-8 md:py-8">
-      {renderEffectArea()}
 
       <section
         className="rounded-2xl border border-border bg-white p-5"
@@ -514,7 +643,7 @@ export function ResultDashboardClient({
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
           <div className="rounded-xl border border-border bg-[#faf8f2] p-3">
-            <p className="text-xs text-muted-foreground">沙发占墙宽</p>
+            <p className="text-xs text-muted-foreground">沙发占墙比</p>
             <p className="text-sm font-semibold text-foreground">
               {(report.layoutMetrics.sofaWallOccupancy * 100).toFixed(1)}%
             </p>
@@ -555,7 +684,7 @@ export function ResultDashboardClient({
             ))
           ) : (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              当前校验没有发现明显冲突，可以继续保持这套布局方案。
+              当前校验没有发现明显冲突，可以继续沿用这套布局方案。
             </div>
           )}
         </div>
@@ -576,24 +705,49 @@ export function ResultDashboardClient({
             }
           />
         </article>
-
         <article className="rounded-2xl border border-border bg-white p-4">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-foreground">推荐清单</h2>
-              {isEffectGenerating ? (
-                <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
-                  效果图更新中
-                </span>
-              ) : null}
+          <div className="mb-3 flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-foreground">推荐清单</h2>
+                {isEffectGenerating ? (
+                  <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
+                    效果图更新中
+                  </span>
+                ) : null}
+              </div>
+
+              <Link
+                href={`/generate/loading?scheme_id=${schemeId}`}
+                className="text-xs font-medium text-[#8B5A37] hover:underline"
+              >
+                重新跑全流程
+              </Link>
             </div>
 
-            <Link
-              href={`/generate/loading?scheme_id=${schemeId}`}
-              className="text-xs font-medium text-[#8B5A37] hover:underline"
-            >
-              重新跑全流程
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <PaywallGate
+                currentPlan={currentPlan}
+                requiredPlan="serious"
+                suggestedPlan="serious"
+                reason="购物清单导出在认真选及以上套餐开放，升级后即可导出 PDF/打印版。"
+              >
+                <button
+                  type="button"
+                  onClick={handlePrintShoppingList}
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  导出购物清单
+                </button>
+              </PaywallGate>
+              <Link
+                href={`/accounting/${schemeId}`}
+                className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+              >
+                打开记账页
+              </Link>
+            </div>
           </div>
 
           {recommendations.length > 0 ? (
@@ -633,7 +787,6 @@ export function ResultDashboardClient({
                             unoptimized
                           />
                         </div>
-
                         <div className="min-w-0 flex-1 space-y-1">
                           <p className="line-clamp-2 text-sm font-semibold text-foreground">
                             {item.product.name}
@@ -658,18 +811,32 @@ export function ResultDashboardClient({
                     ) : null}
 
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Link
-                        href={`/import/${schemeId}?replace=${item.product.id}&category=${item.category}`}
-                        className="inline-flex h-8 items-center justify-center rounded-md bg-[#8B5A37] px-3 text-xs font-medium text-white transition-colors hover:bg-[#754a2f]"
+                      <PaywallGate
+                        currentPlan={currentPlan}
+                        requiredPlan="trial"
+                        suggestedPlan="trial"
+                        reason="免费体验版暂不支持商品替换，升级后可继续换一个并重新生成效果图。"
                       >
-                        换一个
-                      </Link>
-                      <Link
-                        href={`/compare/${schemeId}?category=${item.category}`}
-                        className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-white"
+                        <Link
+                          href={`/import/${schemeId}?replace=${item.product.id}&category=${item.category}`}
+                          className="inline-flex h-8 items-center justify-center rounded-md bg-[#8B5A37] px-3 text-xs font-medium text-white transition-colors hover:bg-[#754a2f]"
+                        >
+                          换一个
+                        </Link>
+                      </PaywallGate>
+                      <PaywallGate
+                        currentPlan={currentPlan}
+                        requiredPlan="serious"
+                        suggestedPlan="serious"
+                        reason="三选一对比在认真选及以上套餐开放，升级后可同时比较多个候选商品。"
                       >
-                        对比
-                      </Link>
+                        <Link
+                          href={`/compare/${schemeId}?category=${item.category}`}
+                          className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-white"
+                        >
+                          对比
+                        </Link>
+                      </PaywallGate>
                       {item.product.sourceUrl ? (
                         <Link
                           href={item.product.sourceUrl}

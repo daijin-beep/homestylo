@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 
 interface AccountingPageProps {
   params: Promise<{ schemeId: string }>;
+  searchParams?: Promise<{ print?: string }>;
 }
 
 interface SchemeRow {
@@ -46,8 +47,12 @@ export const metadata: Metadata = {
   description: "查看当前方案的商品清单、记录成交价并追踪预算进度。",
 };
 
-export default async function AccountingPage({ params }: AccountingPageProps) {
+export default async function AccountingPage({
+  params,
+  searchParams,
+}: AccountingPageProps) {
   const { schemeId } = await params;
+  const query = searchParams ? await searchParams : undefined;
   const supabase = await createClient();
   const {
     data: { user },
@@ -132,7 +137,11 @@ export default async function AccountingPage({ params }: AccountingPageProps) {
       <div className="mx-auto w-full max-w-7xl px-4 pt-6 md:px-8">
         <SchemeNavigation currentStep="accounting" schemeId={schemeId} />
       </div>
-      <AccountingDashboardClient schemeId={scheme.id} items={items} />
+      <AccountingDashboardClient
+        schemeId={scheme.id}
+        items={items}
+        autoPrint={query?.print === "1"}
+      />
     </>
   );
 }
