@@ -18,7 +18,7 @@ interface ShareRow {
 }
 
 export const metadata: Metadata = {
-  title: "HomeStylo 公开分享",
+  title: "公开分享",
   description: "查看公开分享的 HomeStylo 家居方案。",
 };
 

@@ -42,7 +42,7 @@ interface ProductRow {
 }
 
 export const metadata: Metadata = {
-  title: "购物清单与预算 | HomeStylo",
+  title: "购物清单与预算",
   description: "查看当前方案的商品清单、记录成交价并追踪预算进度。",
 };
 

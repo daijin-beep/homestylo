@@ -57,7 +57,7 @@ const FAQS = [
 ] as const;
 
 export const metadata: Metadata = {
-  title: "套餐价格 | HomeStylo",
+  title: "套餐价格",
   description: "查看 HomeStylo 的定价方案，选择适合你的家居决策套餐。",
 };
 

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ProductImportClient } from "@/components/import/ProductImportClient";
 import { createClient } from "@/lib/supabase/server";
@@ -29,6 +30,11 @@ interface HeroProductRow {
   category: ProductCategory;
   style: string;
 }
+
+export const metadata: Metadata = {
+  title: "导入或替换商品",
+  description: "从推荐库选择商品，或上传自己的商品截图与尺寸，加入当前 HomeStylo 方案。",
+};
 
 export default async function ImportPage({
   params,

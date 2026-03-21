@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import {
   ComparePageClient,
@@ -23,6 +24,11 @@ interface RoomAnalysisRow {
     ceiling_height_mm?: number | null;
   } | null;
 }
+
+export const metadata: Metadata = {
+  title: "三选一对比",
+  description: "横向对比同一品类的多个替换方案，选出最适合你家的那一个。",
+};
 
 interface SchemeProductRow {
   id: string;

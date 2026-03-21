@@ -15,7 +15,7 @@ interface SchemeRow {
 }
 
 export const metadata: Metadata = {
-  title: "方案分享 | HomeStylo",
+  title: "方案分享",
   description: "生成公开分享链接，把效果图、购物清单或三选一对比发给别人看。",
 };
 

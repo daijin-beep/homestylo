@@ -10,6 +10,7 @@ import {
   ReceiptText,
   Wallet,
 } from "lucide-react";
+import { EmptyStateCard } from "@/components/brand/EmptyStateCard";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -519,8 +520,12 @@ export function AccountingDashboardClient({
               })}
             </div>
           ) : (
-            <div className="px-5 py-12 text-center">
-              <p className="text-sm text-muted-foreground">当前方案还没有可记账的商品清单。</p>
+            <div className="px-5 py-8">
+              <EmptyStateCard
+                title="当前方案还没有可记账的商品"
+                description="先去生成推荐、导入商品或完成替换，这里就会自动出现购物清单与预算追踪。"
+                eyebrow="Shopping List"
+              />
             </div>
           )}
         </section>

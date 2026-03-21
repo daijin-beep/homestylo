@@ -56,16 +56,25 @@ export function Navbar() {
   }
 
   return (
-    <header className="sticky top-0 z-50 h-14 border-b border-[#E5E5E5] bg-white">
-      <div className="mx-auto flex h-full w-full max-w-6xl items-center justify-between px-4 md:px-8">
+    <header className="sticky top-0 z-50 h-16 border-b border-[#e5d8c7] bg-white/92 backdrop-blur">
+      <div className="mx-auto flex h-full w-full max-w-7xl items-center justify-between px-4 md:px-8">
         <Link
           href="/"
-          className="font-serif text-[20px] font-bold tracking-tight text-[#8B5A37]"
+          className="flex items-center gap-2 font-serif text-[22px] font-bold tracking-tight text-[#8B5A37]"
         >
-          HomeStylo
+          <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[#f3e7d7] text-sm">
+            H
+          </span>
+          <span>HomeStylo</span>
         </Link>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/pricing"
+            className="hidden px-3 text-sm font-medium text-foreground/75 transition-colors hover:text-[#8B5A37] md:inline-flex"
+          >
+            套餐价格
+          </Link>
           <Link
             href="/create"
             className="hidden h-9 items-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f] sm:inline-flex"

@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { ResultDashboardClient } from "@/components/result/ResultDashboardClient";
 import { createClient } from "@/lib/supabase/server";
@@ -65,6 +66,11 @@ interface EffectImageRow {
       }>
     | null;
 }
+
+export const metadata: Metadata = {
+  title: "方案结果",
+  description: "查看布局图、尺寸校验、效果图和推荐清单，继续替换、对比或分享你的方案。",
+};
 
 function ensureNumber(value: unknown, fallback: number) {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {

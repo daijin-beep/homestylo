@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { CheckCircle2, AlertTriangle, XCircle } from "lucide-react";
+import { EmptyStateCard } from "@/components/brand/EmptyStateCard";
 import type { ShareType } from "@/lib/types";
 import type { ShareRenderData } from "@/lib/share/shareData";
 import { cn } from "@/lib/utils";
@@ -69,8 +70,13 @@ function renderEffectImageShare(data: ShareRenderData) {
               unoptimized
             />
           ) : (
-            <div className="flex h-full items-center justify-center px-8 text-center text-sm text-muted-foreground">
-              暂时还没有可分享的效果图，你可以先回结果页重新生成。
+            <div className="flex h-full items-center justify-center p-6">
+              <EmptyStateCard
+                title="还没有可分享的效果图"
+                description="先回结果页重新生成效果图，再回来创建这张公开分享卡片。"
+                eyebrow="Effect Share"
+                className="w-full border-none bg-transparent px-0 py-0"
+              />
             </div>
           )}
         </div>
@@ -239,9 +245,11 @@ function renderCompareShare(data: ShareRenderData) {
           })}
         </div>
       ) : (
-        <div className="rounded-[24px] border border-dashed border-[#dcc9b3] bg-[#fbf7f0] px-6 py-10 text-center text-sm text-muted-foreground">
-          当前还没有足够的替换历史可用于生成三选一对比分享。
-        </div>
+        <EmptyStateCard
+          title="还没有足够的对比版本"
+          description="继续在结果页多换几个同品类方案后，这里就能生成可分享的三选一对比卡。"
+          eyebrow="Compare"
+        />
       )}
     </div>
   );

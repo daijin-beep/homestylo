@@ -19,8 +19,11 @@ const notoSerifSC = Noto_Serif_SC({
 });
 
 export const metadata: Metadata = {
-  title: "HomeStylo - \u4e70\u5927\u5bb6\u5177\u524d\uff0c\u5148\u653e\u8fdb\u4f60\u5bb6\u770b\u770b",
-  description: "\u4e70\u5927\u5bb6\u5177\u524d\uff0c\u5148\u653e\u8fdb\u4f60\u5bb6\u770b\u770b",
+  title: {
+    default: "HomeStylo - 买大件前，先放进你家看看",
+    template: "%s | HomeStylo",
+  },
+  description: "AI 帮你验证尺寸、预览效果、比较方案，买大件前先放进你家看看。",
 };
 
 export default function RootLayout({
