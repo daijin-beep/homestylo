@@ -20,6 +20,7 @@ interface RoomAnalysisRow {
     sofa_wall_width_mm?: number;
     tv_wall_width_mm?: number;
     room_depth_mm?: number | null;
+    ceiling_height_mm?: number | null;
   } | null;
 }
 
@@ -28,6 +29,9 @@ interface SchemeProductRow {
   product_id: string | null;
   category: string;
   notes: string | null;
+  status: string | null;
+  import_source: string | null;
+  created_at: string;
 }
 
 interface ProductRow {
@@ -283,6 +287,22 @@ function toValidationFurniture(products: ProductRow[]): FurnitureItem[] {
   }));
 }
 
+function pickLatestActiveSchemeProducts(rows: SchemeProductRow[]) {
+  const latestByCategory = new Map<string, SchemeProductRow>();
+
+  for (const row of rows) {
+    if (row.status === "abandoned" || !row.product_id) {
+      continue;
+    }
+
+    if (!latestByCategory.has(row.category)) {
+      latestByCategory.set(row.category, row);
+    }
+  }
+
+  return [...latestByCategory.values()];
+}
+
 export default async function ResultPage({ params, searchParams }: ResultPageProps) {
   const { schemeId } = await params;
   const query = searchParams ? await searchParams : undefined;
@@ -311,15 +331,15 @@ export default async function ResultPage({ params, searchParams }: ResultPagePro
     .order("version", { ascending: true })
     .returns<EffectImageRow[]>();
 
-  const { data: schemeProducts } = await supabase
+  const { data: schemeProductRows } = await supabase
     .from("scheme_products")
-    .select("id, product_id, category, notes")
+    .select("id, product_id, category, notes, status, import_source, created_at")
     .eq("scheme_id", schemeId)
-    .eq("import_source", "recommendation")
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .returns<SchemeProductRow[]>();
 
-  const productIds = (schemeProducts ?? [])
+  const activeSchemeProducts = pickLatestActiveSchemeProducts(schemeProductRows ?? []);
+  const productIds = activeSchemeProducts
     .map((item) => item.product_id)
     .filter((value): value is string => typeof value === "string");
 
@@ -337,7 +357,7 @@ export default async function ResultPage({ params, searchParams }: ResultPagePro
   }
 
   const productMap = new Map(products.map((item) => [item.id, item]));
-  const recommendations = (schemeProducts ?? [])
+  const recommendations = activeSchemeProducts
     .map((item) => {
       const product = item.product_id ? productMap.get(item.product_id) : null;
       if (!product) {
@@ -366,21 +386,31 @@ export default async function ResultPage({ params, searchParams }: ResultPagePro
 
   const room = createRoomPlan(roomAnalysis?.constraints_json ?? null);
   const placedFurniture = buildPlacedFurniture(products, room);
-  const sofaWallWidth = ensureNumber(roomAnalysis?.constraints_json?.sofa_wall_width_mm, room.widthMm);
-  const tvWallWidth = ensureNumber(roomAnalysis?.constraints_json?.tv_wall_width_mm, room.widthMm);
-  const roomDepthMm = ensureNullableNumber(roomAnalysis?.constraints_json?.room_depth_mm) ?? room.depthMm;
+  const sofaWallWidth = ensureNumber(
+    roomAnalysis?.constraints_json?.sofa_wall_width_mm,
+    room.widthMm,
+  );
+  const tvWallWidth = ensureNumber(
+    roomAnalysis?.constraints_json?.tv_wall_width_mm,
+    room.widthMm,
+  );
+  const roomDepthMm =
+    ensureNullableNumber(roomAnalysis?.constraints_json?.room_depth_mm) ?? room.depthMm;
+  const ceilingHeightMm = ensureNullableNumber(
+    roomAnalysis?.constraints_json?.ceiling_height_mm,
+  );
 
   const report: ValidationReport = validateLayout(
     {
       sofaWallWidthMm: sofaWallWidth,
       tvWallWidthMm: tvWallWidth,
       roomDepthMm,
-      ceilingHeightMm: null,
+      ceilingHeightMm,
     },
     toValidationFurniture(products),
   );
 
-  const selectedVersion = query?.v ? Number(query.v) : NaN;
+  const selectedVersion = query?.v ? Number(query.v) : Number.NaN;
   const selectedEffectImage =
     effectImages && effectImages.length > 0
       ? effectImages.find((item) => item.version === selectedVersion) ??
@@ -411,7 +441,9 @@ export default async function ResultPage({ params, searchParams }: ResultPagePro
               x: Math.max(0, Math.min(1, item.x)),
               y: Math.max(0, Math.min(1, item.y)),
               width:
-                typeof item.width === "number" ? Math.max(0, Math.min(1, item.width)) : 0.1,
+                typeof item.width === "number"
+                  ? Math.max(0, Math.min(1, item.width))
+                  : 0.1,
               height:
                 typeof item.height === "number"
                   ? Math.max(0, Math.min(1, item.height))

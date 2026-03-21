@@ -3,7 +3,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, ExternalLink, Sparkles, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Sparkles,
+  XCircle,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { FloorPlanView } from "@/components/layout/FloorPlanView";
 import { PRODUCT_CATEGORY_DEFINITIONS } from "@/lib/constants";
@@ -94,7 +102,9 @@ function formatPrice(min: number, max: number) {
     return `¥${new Intl.NumberFormat("zh-CN").format(min)}`;
   }
 
-  return `¥${new Intl.NumberFormat("zh-CN").format(min)} - ¥${new Intl.NumberFormat("zh-CN").format(max)}`;
+  return `¥${new Intl.NumberFormat("zh-CN").format(min)} - ¥${new Intl.NumberFormat(
+    "zh-CN",
+  ).format(max)}`;
 }
 
 function normalizeHotspots(raw: unknown): ResultEffectHotspot[] {
@@ -120,8 +130,8 @@ function normalizeHotspots(raw: unknown): ResultEffectHotspot[] {
       continue;
     }
 
-    const x = typeof record.x === "number" ? record.x : NaN;
-    const y = typeof record.y === "number" ? record.y : NaN;
+    const x = typeof record.x === "number" ? record.x : Number.NaN;
+    const y = typeof record.y === "number" ? record.y : Number.NaN;
     if (!Number.isFinite(x) || !Number.isFinite(y)) {
       continue;
     }
@@ -166,6 +176,11 @@ export function ResultDashboardClient({
   );
   const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
   const recommendationRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  useEffect(() => {
+    setFurniture(initialFurniture);
+    setSelectedId(initialFurniture[0]?.id ?? null);
+  }, [initialFurniture]);
 
   useEffect(() => {
     setLocalEffectImage(effectImage);
@@ -223,7 +238,7 @@ export function ResultDashboardClient({
           });
         }
       } catch {
-        // Ignore polling error and continue.
+        // Ignore polling failures and continue next round.
       }
     }, 2000);
 
@@ -251,6 +266,9 @@ export function ResultDashboardClient({
     [report.items],
   );
 
+  const isEffectGenerating =
+    localEffectImage !== null && GENERATING_STATUSES.has(localEffectImage.status);
+
   const handleBackfillRecommendations = async () => {
     if (isBackfilling) {
       return;
@@ -265,7 +283,7 @@ export function ResultDashboardClient({
       });
 
       if (!response.ok) {
-        throw new Error("推荐接口调用失败");
+        throw new Error("推荐接口调用失败。");
       }
 
       startTransition(() => {
@@ -307,6 +325,7 @@ export function ResultDashboardClient({
 
   const handleHotspotClick = (productId: string) => {
     setHighlightedProductId(productId);
+    setSelectedId(productId);
     const target = recommendationRefs.current[productId];
     if (target) {
       target.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -322,15 +341,21 @@ export function ResultDashboardClient({
     return (
       <section className="rounded-2xl border border-border bg-white p-4 md:p-5">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Sparkles className="h-5 w-5 text-[#8B5A37]" />
             <h2 className="text-lg font-semibold text-foreground">AI 效果图</h2>
             {effectImageVersion ? (
               <span className="rounded-full bg-[#f5f0e9] px-2 py-1 text-xs font-medium text-[#8B5A37]">
-                {`效果图 v${effectImageVersion.current}`}
+                {`版本 v${effectImageVersion.current}`}
+              </span>
+            ) : null}
+            {isGenerating ? (
+              <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-700">
+                正在重新生成
               </span>
             ) : null}
           </div>
+
           <div className="flex items-center gap-2">
             {effectImageVersion ? (
               <div className="flex items-center gap-1">
@@ -368,13 +393,24 @@ export function ResultDashboardClient({
                 </Link>
               </div>
             ) : null}
+
             <button
               type="button"
               onClick={handleRegenerateEffectImage}
               disabled={isRegenerating}
-              className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-border bg-white px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isRegenerating ? "重新生成中..." : "重新生成"}
+              {isRegenerating ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  提交中...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  重新生成
+                </>
+              )}
             </button>
           </div>
         </div>
@@ -383,12 +419,12 @@ export function ResultDashboardClient({
           <div className="space-y-3">
             <div className="relative overflow-hidden rounded-2xl border border-border bg-[#f8f7f3]">
               <div className="absolute right-3 top-3 z-10 rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white">
-                AI生成效果图
+                AI 生成效果图
               </div>
               <div className="relative aspect-[4/3] w-full">
                 <Image
                   src={localEffectImage?.imageUrl ?? ""}
-                  alt="AI效果图"
+                  alt="AI 效果图"
                   fill
                   className="object-cover"
                   sizes="(max-width: 1024px) 100vw, 1200px"
@@ -408,8 +444,8 @@ export function ResultDashboardClient({
                     }}
                   >
                     <span className="absolute inset-0 animate-ping rounded-full bg-[#8B5A37]/25" />
-                    <span className="relative inline-flex h-12 w-12 items-center justify-center rounded-full border-2 border-[#8B5A37] bg-white/80 text-xs font-semibold text-[#8B5A37] shadow-sm sm:h-10 sm:w-10">
-                      点
+                    <span className="relative inline-flex h-10 w-10 items-center justify-center rounded-full border-2 border-[#8B5A37] bg-white/80 text-xs font-semibold text-[#8B5A37] shadow-sm">
+                      热点
                     </span>
                     <span className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md bg-black/75 px-2 py-1 text-xs text-white opacity-0 transition group-hover:opacity-100">
                       {hotspot.label}
@@ -419,7 +455,7 @@ export function ResultDashboardClient({
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              点击热点可快速定位并高亮下方推荐清单中的对应商品。
+              点击热点可以快速定位并高亮下方推荐清单中的对应商品。
             </p>
           </div>
         ) : null}
@@ -435,7 +471,7 @@ export function ResultDashboardClient({
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              当前阶段：{status}，页面会自动刷新最新结果。
+              {`当前阶段：${status}，页面会自动刷新最新结果。`}
             </p>
           </div>
         ) : null}
@@ -467,7 +503,10 @@ export function ResultDashboardClient({
         className="rounded-2xl border border-border bg-white p-5"
         style={{ borderColor: `${STATUS_COLOR[report.overallStatus]}55` }}
       >
-        <div className="flex items-center gap-2" style={{ color: STATUS_COLOR[report.overallStatus] }}>
+        <div
+          className="flex items-center gap-2"
+          style={{ color: STATUS_COLOR[report.overallStatus] }}
+        >
           {getStatusIcon(report.overallStatus)}
           <h2 className="text-lg font-semibold">{STATUS_TEXT[report.overallStatus]}</h2>
         </div>
@@ -515,7 +554,7 @@ export function ResultDashboardClient({
             ))
           ) : (
             <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-              当前校验没有发现明显冲突，可以继续保持该布局方案。
+              当前校验没有发现明显冲突，可以继续保持这套布局方案。
             </div>
           )}
         </div>
@@ -538,8 +577,16 @@ export function ResultDashboardClient({
         </article>
 
         <article className="rounded-2xl border border-border bg-white p-4">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-foreground">推荐清单</h2>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-foreground">推荐清单</h2>
+              {isEffectGenerating ? (
+                <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-medium text-amber-700">
+                  效果图更新中
+                </span>
+              ) : null}
+            </div>
+
             <Link
               href={`/generate/loading?scheme_id=${schemeId}`}
               className="text-xs font-medium text-[#8B5A37] hover:underline"
@@ -569,31 +616,39 @@ export function ResultDashboardClient({
                         : "border-border",
                     )}
                   >
-                    <div className="flex gap-3">
-                      <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border">
-                        <Image
-                          src={item.product.imageUrl || "/images/products/placeholder.webp"}
-                          alt={item.product.name}
-                          fill
-                          className="object-cover"
-                          sizes="80px"
-                          unoptimized
-                        />
-                      </div>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(item.product.id)}
+                      className="w-full text-left"
+                    >
+                      <div className="flex gap-3">
+                        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-lg border border-border">
+                          <Image
+                            src={item.product.imageUrl || "/images/products/placeholder.webp"}
+                            alt={item.product.name}
+                            fill
+                            className="object-cover"
+                            sizes="80px"
+                            unoptimized
+                          />
+                        </div>
 
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <p className="line-clamp-2 text-sm font-semibold text-foreground">
-                          {item.product.name}
-                        </p>
-                        <p className="text-xs text-muted-foreground">{label}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {`${item.product.widthMm}×${item.product.depthMm}×${item.product.heightMm}mm`}
-                        </p>
-                        <p className="text-sm font-semibold text-[#8B5A37]">
-                          {formatPrice(item.product.priceMin, item.product.priceMax)}
-                        </p>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="line-clamp-2 text-sm font-semibold text-foreground">
+                            {item.product.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {item.product.brand ? `${label} · ${item.product.brand}` : label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {`${item.product.widthMm} × ${item.product.depthMm} × ${item.product.heightMm}mm`}
+                          </p>
+                          <p className="text-sm font-semibold text-[#8B5A37]">
+                            {formatPrice(item.product.priceMin, item.product.priceMax)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
+                    </button>
 
                     {item.reason ? (
                       <p className="mt-2 rounded-md bg-white px-2 py-1 text-xs text-muted-foreground">
@@ -601,23 +656,31 @@ export function ResultDashboardClient({
                       </p>
                     ) : null}
 
-                    {item.product.sourceUrl ? (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
                       <Link
-                        href={item.product.sourceUrl}
-                        className="mt-2 inline-flex items-center gap-1 text-xs text-[#8B5A37] hover:underline"
-                        target="_blank"
+                        href={`/import/${schemeId}?replace=${item.product.id}&category=${item.category}`}
+                        className="inline-flex h-8 items-center justify-center rounded-md bg-[#8B5A37] px-3 text-xs font-medium text-white transition-colors hover:bg-[#754a2f]"
                       >
-                        查看来源
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        换一个
                       </Link>
-                    ) : null}
+                      {item.product.sourceUrl ? (
+                        <Link
+                          href={item.product.sourceUrl}
+                          className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-3 text-xs text-[#8B5A37] hover:bg-white"
+                          target="_blank"
+                        >
+                          查看来源
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </Link>
+                      ) : null}
+                    </div>
                   </div>
                 );
               })}
             </div>
           ) : (
             <div className="space-y-3 rounded-lg border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-              <p>暂无推荐商品，你可以一键补全推荐清单。</p>
+              <p>当前还没有推荐商品，你可以一键补全推荐清单。</p>
               <button
                 type="button"
                 onClick={handleBackfillRecommendations}
