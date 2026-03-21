@@ -663,6 +663,12 @@ export function ResultDashboardClient({
                       >
                         换一个
                       </Link>
+                      <Link
+                        href={`/compare/${schemeId}?category=${item.category}`}
+                        className="inline-flex h-8 items-center justify-center rounded-md border border-border px-3 text-xs font-medium text-foreground transition-colors hover:bg-white"
+                      >
+                        对比
+                      </Link>
                       {item.product.sourceUrl ? (
                         <Link
                           href={item.product.sourceUrl}
