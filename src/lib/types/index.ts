@@ -19,7 +19,7 @@ export type ProductRole = "primary" | "secondary" | "accessory";
 export type GenerationStatus = "pending" | "depth" | "flux" | "sam" | "fill" | "hotspot" | "done" | "failed";
 export type ProductImportSource = "screenshot" | "hero_sku" | "link" | "recommendation";
 export type ProductStatus = "recommended" | "candidate" | "confirmed" | "purchased" | "abandoned";
-export type ShareType = "single" | "list" | "compare";
+export type ShareType = "effect_image" | "shopping_list" | "compare";
 export type PlanType = "free" | "single" | "room" | "dual";
 
 export interface User {
@@ -117,6 +117,7 @@ export interface Share {
   id: string;
   scheme_id: string;
   share_type: ShareType;
+  watermark_level: string | null;
   image_url: string | null;
   view_count: number;
   created_at: string;
