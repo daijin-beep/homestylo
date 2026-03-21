@@ -59,7 +59,11 @@ export async function uploadToR2(
 }
 
 export function getR2Url(key: string): string {
-  const config = getR2Config();
+  const publicUrl = process.env.R2_PUBLIC_URL;
+  if (!publicUrl) {
+    throw new Error("Missing R2_PUBLIC_URL environment variable.");
+  }
+
   const sanitizedKey = key.replace(/^\//, "");
-  return `${config.endpoint}/${config.bucketName}/${encodeURI(sanitizedKey)}`;
+  return `${publicUrl.replace(/\/$/, "")}/${encodeURI(sanitizedKey)}`;
 }
