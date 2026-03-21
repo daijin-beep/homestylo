@@ -89,6 +89,59 @@ export function ProductImportClient({
   const [manualPreview, setManualPreview] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const runReplacementValidation = async (productId: string, categoryValue: string) => {
+    const response = await fetch("/api/product/validate", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        scheme_id: schemeId,
+        product_id: productId,
+        category: categoryValue,
+      }),
+    });
+
+    const payload = (await response.json()) as {
+      success?: boolean;
+      status?: "pass" | "warning" | "block";
+      suggestion?: string;
+      generationTriggered?: boolean;
+      generationVersion?: number | null;
+      generationError?: string | null;
+      error?: string;
+    };
+
+    if (!response.ok || payload.success === false || !payload.status) {
+      throw new Error(payload.error ?? "商品替换校验失败。");
+    }
+
+    if (payload.status === "block") {
+      toast.error(payload.suggestion ?? "新商品尺寸超出空间限制，请查看结果页详情。");
+      return;
+    }
+
+    if (payload.generationTriggered) {
+      const versionText =
+        typeof payload.generationVersion === "number"
+          ? `，已创建第 ${payload.generationVersion} 版效果图`
+          : "";
+      toast.success(`尺寸校验通过，正在刷新效果图${versionText}。`);
+      return;
+    }
+
+    if (payload.generationError) {
+      toast.error(payload.generationError);
+      return;
+    }
+
+    toast.success(
+      payload.status === "warning"
+        ? "尺寸存在轻微风险，请回到结果页查看详细校验项。"
+        : "尺寸校验通过。",
+    );
+  };
+
   useEffect(() => {
     return () => {
       if (manualPreview) {
@@ -148,6 +201,7 @@ export function ProductImportClient({
         success?: boolean;
         error?: string;
         redirectTo?: string;
+        productId?: string;
       };
 
       if (!response.ok || payload.success === false || !payload.redirectTo) {
@@ -155,6 +209,7 @@ export function ProductImportClient({
       }
 
       toast.success("商品已加入当前方案。");
+      await runReplacementValidation(productId, selectedCategory);
       router.push(payload.redirectTo);
       router.refresh();
     } catch (error) {
@@ -196,6 +251,7 @@ export function ProductImportClient({
         success?: boolean;
         error?: string;
         redirectTo?: string;
+        productId?: string;
       };
 
       if (!response.ok || payload.success === false || !payload.redirectTo) {
@@ -203,6 +259,7 @@ export function ProductImportClient({
       }
 
       toast.success("自定义商品已导入方案。");
+      await runReplacementValidation(payload.productId ?? "", manualCategory);
       router.push(payload.redirectTo);
       router.refresh();
     } catch (error) {

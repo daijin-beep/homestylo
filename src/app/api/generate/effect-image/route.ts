@@ -26,6 +26,9 @@ interface RoomAnalysisRow {
 
 interface SchemeProductRow {
   product_id: string | null;
+  category: string;
+  status: string | null;
+  created_at: string;
 }
 
 interface ProductRow {
@@ -34,6 +37,7 @@ interface ProductRow {
   category: string;
   width_mm: number;
   depth_mm: number;
+  height_mm: number;
 }
 
 interface EffectImageRow {
@@ -71,6 +75,22 @@ function ensureNullableNumber(value: unknown) {
   }
 
   return null;
+}
+
+function getLatestActiveProductIds(records: SchemeProductRow[] | null) {
+  const latestByCategory = new Map<string, string>();
+
+  for (const item of records ?? []) {
+    if (!item.product_id || item.status === "abandoned") {
+      continue;
+    }
+
+    if (!latestByCategory.has(item.category)) {
+      latestByCategory.set(item.category, item.product_id);
+    }
+  }
+
+  return [...new Set(latestByCategory.values())];
 }
 
 async function resolveRoomPhotoUrl(
@@ -134,22 +154,22 @@ async function runPipeline(effectImageId: string, schemeId: string) {
 
     const { data: schemeProducts, error: schemeProductsError } = await supabase
       .from("scheme_products")
-      .select("product_id")
-      .eq("scheme_id", schemeId);
+      .select("product_id, category, status, created_at")
+      .eq("scheme_id", schemeId)
+      .order("created_at", { ascending: false })
+      .returns<SchemeProductRow[]>();
 
     if (schemeProductsError) {
       throw new Error(schemeProductsError.message);
     }
 
-    const productIds = (schemeProducts as SchemeProductRow[] | null)
-      ?.map((item) => item.product_id)
-      .filter((item): item is string => typeof item === "string");
+    const productIds = getLatestActiveProductIds(schemeProducts ?? []);
 
     let products: ProductRow[] = [];
-    if (productIds && productIds.length > 0) {
+    if (productIds.length > 0) {
       const { data: rows, error: productsError } = await supabase
         .from("products")
-        .select("id, name, category, width_mm, depth_mm")
+        .select("id, name, category, width_mm, depth_mm, height_mm")
         .in("id", productIds)
         .returns<ProductRow[]>();
 
@@ -212,6 +232,14 @@ async function runPipeline(effectImageId: string, schemeId: string) {
         render_time_ms: render.processingTimeMs,
         hotspot_time_ms: hotspots.processingTimeMs,
         total_time_ms: Date.now() - startedAt,
+        active_products: products.map((item) => ({
+          id: item.id,
+          name: item.name,
+          category: item.category,
+          width_mm: item.width_mm,
+          depth_mm: item.depth_mm,
+          height_mm: item.height_mm,
+        })),
       },
       error_message: null,
     });
