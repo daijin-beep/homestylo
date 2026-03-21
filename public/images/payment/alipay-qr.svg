@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="360" viewBox="0 0 360 360" fill="none">
+  <rect width="360" height="360" rx="32" fill="#F4F8FF"/>
+  <rect x="32" y="32" width="296" height="296" rx="28" fill="white" stroke="#D8E7FF" stroke-width="8"/>
+  <rect x="70" y="70" width="64" height="64" rx="10" fill="#1677FF"/>
+  <rect x="226" y="70" width="64" height="64" rx="10" fill="#1677FF"/>
+  <rect x="70" y="226" width="64" height="64" rx="10" fill="#1677FF"/>
+  <path d="M170 78H210V118H170V78Z" fill="#1677FF"/>
+  <path d="M170 150H210V190H170V150Z" fill="#1677FF"/>
+  <path d="M150 170H190V210H150V170Z" fill="#1677FF"/>
+  <path d="M214 170H254V210H214V170Z" fill="#1677FF"/>
+  <path d="M150 234H190V274H150V234Z" fill="#1677FF"/>
+  <path d="M214 234H274V254H214V234Z" fill="#1677FF"/>
+  <path d="M234 214H254V274H234V214Z" fill="#1677FF"/>
+  <text x="180" y="320" text-anchor="middle" fill="#1453B5" font-size="24" font-family="Arial, sans-serif">Alipay Placeholder</text>
+</svg>
