@@ -429,6 +429,7 @@ export function ResultDashboardClient({
                   className="object-cover"
                   sizes="(max-width: 1024px) 100vw, 1200px"
                   unoptimized
+                  loading="eager"
                 />
 
                 {localEffectImage?.hotspots.map((hotspot) => (

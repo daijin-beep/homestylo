@@ -29,7 +29,7 @@ export function MoodboardSelector({ selected, onToggle }: MoodboardSelectorProps
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        {MOODBOARD_IDS.map((id) => {
+        {MOODBOARD_IDS.map((id, index) => {
           const isSelected = selected.includes(id);
           const disabled = !isSelected && selected.length >= 3;
 
@@ -53,6 +53,7 @@ export function MoodboardSelector({ selected, onToggle }: MoodboardSelectorProps
                 fill
                 className="object-cover"
                 sizes="(max-width: 768px) 50vw, 240px"
+                loading={index < 2 ? "eager" : "lazy"}
               />
               <div
                 className={cn(

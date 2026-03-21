@@ -344,7 +344,7 @@ export function ProductImportClient({
 
           {filteredHeroProducts.length > 0 ? (
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredHeroProducts.map((product) => (
+              {filteredHeroProducts.map((product, index) => (
                 <article
                   key={product.id}
                   className="overflow-hidden rounded-2xl border border-border bg-white shadow-sm"
@@ -357,6 +357,7 @@ export function ProductImportClient({
                       className="object-cover"
                       sizes="(max-width: 1280px) 50vw, 33vw"
                       unoptimized={product.image_url.startsWith("http")}
+                      loading={index === 0 ? "eager" : "lazy"}
                     />
                   </div>
                   <div className="space-y-3 p-4">

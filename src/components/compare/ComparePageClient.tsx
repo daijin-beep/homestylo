@@ -183,7 +183,7 @@ export function ComparePageClient({
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        {items.map((item) => {
+        {items.map((item, index) => {
           const statusMeta = STATUS_META[item.validationStatus];
           const StatusIcon = statusMeta.icon;
 
@@ -211,6 +211,7 @@ export function ComparePageClient({
                       className="object-cover"
                       sizes="(max-width: 1024px) 100vw, 33vw"
                       unoptimized
+                      loading={index === 0 ? "eager" : "lazy"}
                     />
                   ) : (
                     <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
