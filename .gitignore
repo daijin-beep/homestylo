@@ -20,6 +20,7 @@ pids
 coverage
 *.lcov
 .nyc_output
+.playwright-cli/
 
 # Build tools and temporary directories
 .grunt

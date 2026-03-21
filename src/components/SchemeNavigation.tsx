@@ -94,7 +94,7 @@ export function SchemeNavigation({ currentStep, schemeId }: SchemeNavigationProp
 
               {index < STEP_CONFIG.length - 1 ? (
                 <span className="text-muted-foreground" aria-hidden>
-                  \u2192
+                  →
                 </span>
               ) : null}
             </li>

@@ -7,6 +7,9 @@ import type { PlanType, User } from "@/lib/types";
 const USER_SELECT =
   "id, phone, nickname, avatar_url, plan_type, plan_room_limit, generation_count, replacement_count, replacement_daily_count, replacement_daily_reset_at, created_at, updated_at";
 
+const LEGACY_USER_SELECT =
+  "id, phone, nickname, avatar_url, plan_type, generation_count, created_at, updated_at";
+
 interface UserRow {
   id: string;
   phone: string | null;
@@ -22,8 +25,32 @@ interface UserRow {
   updated_at: string;
 }
 
-function mapUserRow(row: UserRow): User {
+interface LegacyUserRow {
+  id: string;
+  phone: string | null;
+  nickname: string | null;
+  avatar_url: string | null;
+  plan_type: string | null;
+  generation_count: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function isSchemaCacheError(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? "";
+  return (
+    error?.code === "PGRST204" ||
+    error?.code === "42703" ||
+    message.includes("schema cache") ||
+    message.includes("plan_room_limit") ||
+    message.includes("replacement_daily_count") ||
+    message.includes("replacement_daily_reset_at")
+  );
+}
+
+function mapUserRow(row: UserRow | LegacyUserRow): User {
   const planType = normalizePlanType(row.plan_type);
+  const modernRow = row as Partial<UserRow>;
 
   return {
     id: row.id,
@@ -31,14 +58,31 @@ function mapUserRow(row: UserRow): User {
     nickname: row.nickname,
     avatar_url: row.avatar_url,
     plan_type: planType,
-    plan_room_limit: row.plan_room_limit ?? PLAN_LIMITS[planType].rooms,
+    plan_room_limit: modernRow.plan_room_limit ?? PLAN_LIMITS[planType].rooms,
     generation_count: row.generation_count ?? 0,
-    replacement_count: row.replacement_count ?? 0,
-    replacement_daily_count: row.replacement_daily_count ?? 0,
-    replacement_daily_reset_at: row.replacement_daily_reset_at,
+    replacement_count: modernRow.replacement_count ?? 0,
+    replacement_daily_count: modernRow.replacement_daily_count ?? 0,
+    replacement_daily_reset_at: modernRow.replacement_daily_reset_at ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+async function getLegacyAppUserById(
+  userId: string,
+  supabase = createServiceRoleClient(),
+): Promise<User | null> {
+  const { data, error } = await supabase
+    .from("users")
+    .select(LEGACY_USER_SELECT)
+    .eq("id", userId)
+    .maybeSingle<LegacyUserRow>();
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return data ? mapUserRow(data) : null;
 }
 
 export async function getAppUserById(
@@ -52,6 +96,10 @@ export async function getAppUserById(
     .maybeSingle<UserRow>();
 
   if (error) {
+    if (isSchemaCacheError(error)) {
+      return getLegacyAppUserById(userId, supabase);
+    }
+
     throw new Error(error.message);
   }
 
@@ -77,7 +125,32 @@ export async function ensureAppUser(
       ? authUser.user_metadata.avatar_url
       : null;
 
+  const fullPayload = {
+    id: authUser.id,
+    phone: authUser.phone ?? null,
+    nickname,
+    avatar_url: avatarUrl,
+    plan_type: defaultPlanType,
+    plan_room_limit: PLAN_LIMITS[defaultPlanType].rooms,
+  };
+
   const { data, error } = await supabase
+    .from("users")
+    .upsert(fullPayload, {
+      onConflict: "id",
+    })
+    .select(USER_SELECT)
+    .single<UserRow>();
+
+  if (!error && data) {
+    return mapUserRow(data);
+  }
+
+  if (!isSchemaCacheError(error)) {
+    throw new Error(error?.message ?? "Failed to initialize app user profile.");
+  }
+
+  const { data: legacyData, error: legacyError } = await supabase
     .from("users")
     .upsert(
       {
@@ -86,20 +159,19 @@ export async function ensureAppUser(
         nickname,
         avatar_url: avatarUrl,
         plan_type: defaultPlanType,
-        plan_room_limit: PLAN_LIMITS[defaultPlanType].rooms,
       },
       {
         onConflict: "id",
       },
     )
-    .select(USER_SELECT)
-    .single<UserRow>();
+    .select(LEGACY_USER_SELECT)
+    .single<LegacyUserRow>();
 
-  if (error || !data) {
-    throw new Error(error?.message ?? "Failed to initialize app user profile.");
+  if (legacyError || !legacyData) {
+    throw new Error(legacyError?.message ?? "Failed to initialize legacy app user profile.");
   }
 
-  return mapUserRow(data);
+  return mapUserRow(legacyData);
 }
 
 export async function requireCurrentAppUser() {

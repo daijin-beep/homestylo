@@ -17,11 +17,11 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 
 function getUserBadge(user: SupabaseUser | null) {
   if (!user?.phone) {
-    return "\u7528\u6237";
+    return "用户";
   }
 
   const lastFour = user.phone.replace(/\D/g, "").slice(-4);
-  return lastFour ? lastFour : "\u7528\u6237";
+  return lastFour ? lastFour : "用户";
 }
 
 export function Navbar() {
@@ -79,12 +79,12 @@ export function Navbar() {
             href="/create"
             className="hidden h-9 items-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f] sm:inline-flex"
           >
-            {"\u5f00\u59cb\u8bbe\u8ba1"}
+            开始设计
           </Link>
           <Link
             href="/create"
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#8B5A37] text-white sm:hidden"
-            aria-label="\u5f00\u59cb\u8bbe\u8ba1"
+            aria-label="开始设计"
           >
             <Sparkles className="h-4 w-4" />
           </Link>
@@ -94,7 +94,7 @@ export function Navbar() {
               href="/login"
               className="px-2 text-sm font-medium text-foreground transition-colors hover:text-[#8B5A37]"
             >
-              {"\u767b\u5f55"}
+              登录
             </Link>
           ) : (
             <DropdownMenu>
@@ -102,14 +102,14 @@ export function Navbar() {
                 <button
                   type="button"
                   className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-border bg-[#F5F0E9] px-2 text-xs font-semibold text-[#8B5A37]"
-                  aria-label="\u7528\u6237\u83dc\u5355"
+                  aria-label="用户菜单"
                 >
                   {getUserBadge(activeUser)}
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-36">
                 <DropdownMenuItem asChild>
-                  <Link href="/dashboard">{"\u6211\u7684\u65b9\u6848"}</Link>
+                  <Link href="/dashboard">我的方案</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
@@ -119,7 +119,7 @@ export function Navbar() {
                     void handleSignOut();
                   }}
                 >
-                  {"\u9000\u51fa\u767b\u5f55"}
+                  退出登录
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

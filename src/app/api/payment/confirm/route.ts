@@ -13,6 +13,20 @@ interface OrderRow {
   status: string;
 }
 
+function isSchemaCacheError(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? "";
+  return error?.code === "PGRST204" || error?.code === "42703" || message.includes("schema cache");
+}
+
+function isMissingOrdersTableError(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? "";
+  return (
+    error?.code === "PGRST205" ||
+    message.includes("Could not find the table 'public.orders'") ||
+    message.includes('relation "public.orders" does not exist')
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as ConfirmOrderBody;
@@ -31,6 +45,17 @@ export async function POST(request: Request) {
       .select("id, user_id, plan_type, status")
       .eq("id", orderId)
       .single<OrderRow>();
+
+    if (error && isMissingOrdersTableError(error)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Orders table is not available yet. Apply supabase/migrations/add_orders_table.sql before confirming payments.",
+        },
+        { status: 503 },
+      );
+    }
 
     if (error || !order) {
       return NextResponse.json(
@@ -67,14 +92,35 @@ export async function POST(request: Request) {
       })
       .eq("id", order.user_id);
 
-    if (userUpdateError) {
+    if (!userUpdateError) {
+      return NextResponse.json({
+        success: true,
+        order_id: orderId,
+        plan_type: normalizedPlan,
+      });
+    }
+
+    if (!isSchemaCacheError(userUpdateError)) {
       throw new Error(userUpdateError.message);
+    }
+
+    const { error: legacyUserUpdateError } = await supabase
+      .from("users")
+      .update({
+        plan_type: normalizedPlan,
+        generation_count: 0,
+      })
+      .eq("id", order.user_id);
+
+    if (legacyUserUpdateError) {
+      throw new Error(legacyUserUpdateError.message);
     }
 
     return NextResponse.json({
       success: true,
       order_id: orderId,
       plan_type: normalizedPlan,
+      compatibilityMode: true,
     });
   } catch (error) {
     const message =

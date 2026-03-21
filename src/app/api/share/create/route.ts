@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 import { createClient as createAuthClient } from "@/lib/supabase/server";
 import { resolveShareType } from "@/lib/share/shareData";
+import { createCompatibilityShareId } from "@/lib/share/shareToken";
 
 interface CreateShareBody {
   scheme_id?: string;
@@ -19,6 +20,19 @@ interface ShareRow {
   share_type: string;
   watermark_level: string | null;
   created_at: string;
+}
+
+function isMissingShareStorageError(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? "";
+  return (
+    error?.code === "PGRST205" ||
+    error?.code === "42703" ||
+    error?.code === "23514" ||
+    message.includes("Could not find the table 'public.shares'") ||
+    message.includes('relation "public.shares" does not exist') ||
+    message.includes("watermark_level") ||
+    message.includes("shares_share_type_check")
+  );
 }
 
 export async function POST(request: Request) {
@@ -71,6 +85,20 @@ export async function POST(request: Request) {
       })
       .select("id, scheme_id, share_type, watermark_level, created_at")
       .single<ShareRow>();
+
+    if (shareError && isMissingShareStorageError(shareError)) {
+      const fallbackShareId = createCompatibilityShareId(schemeId, shareType);
+      const publicUrl = new URL(`/s/${fallbackShareId}`, request.url).toString();
+
+      return NextResponse.json({
+        success: true,
+        shareId: fallbackShareId,
+        publicUrl,
+        shareType,
+        watermarkLevel: "brand_bar",
+        compatibilityMode: true,
+      });
+    }
 
     if (shareError || !share) {
       throw new Error(shareError?.message ?? "生成分享链接失败。");

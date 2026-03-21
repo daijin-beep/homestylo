@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ShareRenderCard } from "@/components/share/ShareRenderCard";
-import { resolveShareType, fetchShareRenderData } from "@/lib/share/shareData";
+import { fetchShareRenderData, resolveShareType } from "@/lib/share/shareData";
+import { parseCompatibilityShareId } from "@/lib/share/shareToken";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 
 interface PublicSharePageProps {
@@ -25,31 +26,46 @@ export const metadata: Metadata = {
 export default async function PublicSharePage({ params }: PublicSharePageProps) {
   const { shareId } = await params;
   const supabase = createServiceRoleClient();
+  const compatibilityShare = parseCompatibilityShareId(shareId);
 
-  const { data: share } = await supabase
-    .from("shares")
-    .select("id, scheme_id, share_type, watermark_level, view_count")
-    .eq("id", shareId)
-    .single<ShareRow>();
+  let schemeId: string;
+  let shareType: ReturnType<typeof resolveShareType>;
+  let share: ShareRow | null = null;
 
-  if (!share) {
-    notFound();
+  if (compatibilityShare) {
+    schemeId = compatibilityShare.schemeId;
+    shareType = compatibilityShare.shareType;
+  } else {
+    const { data } = await supabase
+      .from("shares")
+      .select("id, scheme_id, share_type, watermark_level, view_count")
+      .eq("id", shareId)
+      .single<ShareRow>();
+
+    if (!data) {
+      notFound();
+    }
+
+    share = data;
+    schemeId = data.scheme_id;
+    shareType = resolveShareType(data.share_type);
   }
 
-  const shareType = resolveShareType(share.share_type);
   if (!shareType) {
     notFound();
   }
 
-  const data = await fetchShareRenderData(supabase, share.scheme_id);
+  const data = await fetchShareRenderData(supabase, schemeId);
   if (!data) {
     notFound();
   }
 
-  await supabase
-    .from("shares")
-    .update({ view_count: (share.view_count ?? 0) + 1 })
-    .eq("id", shareId);
+  if (share) {
+    await supabase
+      .from("shares")
+      .update({ view_count: (share.view_count ?? 0) + 1 })
+      .eq("id", shareId);
+  }
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,#f9f4ec_0%,#f4ecdf_100%)] px-4 py-8 md:px-8">

@@ -15,6 +15,11 @@ export interface UsageCheckResult {
   suggestedPlan?: PlanType;
 }
 
+function isSchemaCacheError(error: { code?: string; message?: string } | null) {
+  const message = error?.message ?? "";
+  return error?.code === "PGRST204" || message.includes("schema cache");
+}
+
 function getShanghaiDateKey(date: Date) {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
@@ -141,6 +146,10 @@ export async function incrementReplacement(userId: string) {
     .eq("id", userId);
 
   if (error) {
+    if (isSchemaCacheError(error)) {
+      return;
+    }
+
     throw new Error(error.message);
   }
 }
