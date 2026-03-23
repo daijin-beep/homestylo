@@ -172,3 +172,125 @@ export interface RiskItem {
   message: string;
   detail: string;
 }
+
+// ============================================
+// V4.0 Types - Home + Furnishing Plan model
+// ============================================
+
+export type HomeType = "new_build" | "renovation" | "occupied";
+export type HomeStatus = "configuring" | "mostly_done" | "maintaining";
+export type RoomTypeV4 =
+  | "living_room"
+  | "bedroom"
+  | "dining_room"
+  | "study"
+  | "kitchen"
+  | "bathroom"
+  | "other";
+export type FurnishingPlanStatus = "draft" | "browsing" | "partial_purchase" | "completed";
+export type ItemSource = "ai_recommended" | "user_uploaded";
+export type FitStatus = "pending" | "confirmed" | "warning" | "blocked";
+export type ItemStatus = "recommended" | "candidate" | "confirmed" | "purchased" | "abandoned";
+
+export interface Home {
+  id: string;
+  user_id: string;
+  name: string;
+  home_type: HomeType;
+  status: HomeStatus;
+  address: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Room {
+  id: string;
+  home_id: string;
+  name: string;
+  room_type: RoomTypeV4;
+  original_photo_url: string | null;
+  current_photo_url: string | null;
+  floor_plan_url: string | null;
+  spatial_analysis: SpatialAnalysis | null;
+  depth_map_url: string | null;
+  camera_params: CameraParams | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SpatialAnalysis {
+  walls: WallInfo[];
+  floor_material: string | null;
+  wall_color: string | null;
+  lighting_direction: string | null;
+  available_spaces: AvailableSpace[];
+  existing_furniture: ExistingFurniture[];
+  confidence: number;
+}
+
+export interface AvailableSpace {
+  id: string;
+  label: string;
+  width_mm: number;
+  depth_mm: number;
+  position: { x: number; y: number };
+}
+
+export interface ExistingFurniture {
+  id: string;
+  category: string;
+  estimated_width_mm: number;
+  estimated_depth_mm: number;
+  position: { x: number; y: number };
+}
+
+export interface CameraParams {
+  focal_length: number;
+  principal_point: { x: number; y: number };
+  rotation: number[];
+  translation: number[];
+}
+
+export interface FurnishingPlan {
+  id: string;
+  room_id: string;
+  name: string;
+  total_budget: number | null;
+  current_total: number;
+  style_preference: string | null;
+  status: FurnishingPlanStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FurnishingPlanItem {
+  id: string;
+  plan_id: string;
+  category: string;
+  source: ItemSource;
+  locked: boolean;
+  product_id: string | null;
+  custom_name: string | null;
+  custom_image_url: string | null;
+  custom_source_url: string | null;
+  custom_width_mm: number | null;
+  custom_depth_mm: number | null;
+  custom_height_mm: number | null;
+  price: number | null;
+  price_range_min: number | null;
+  price_range_max: number | null;
+  fit_status: FitStatus;
+  fit_message: string | null;
+  status: ItemStatus;
+  purchased_at: string | null;
+  sort_order: number;
+  created_at: string;
+}
+
+// Budget allocation result from AI
+export interface BudgetAllocation {
+  category: string;
+  weight: number;
+  allocated_amount: number;
+  price_range: { min: number; max: number };
+}
