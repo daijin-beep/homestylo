@@ -9,23 +9,13 @@ import {
   Lock,
   ShoppingBag,
   Sparkles,
-  Tag,
   Unlock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { BackLinkButton } from "@/components/BackLinkButton";
+import { BudgetSlider } from "@/components/furnishing/BudgetSlider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useFurnishingStore } from "@/lib/store/furnishingStore";
 import type { FurnishingPlan, FurnishingPlanItem } from "@/lib/types";
 
@@ -62,7 +52,6 @@ const copy = {
   zh: {
     title: "软装清单",
     budget: "总预算",
-    editBudget: "修改预算",
     itemList: "商品清单",
     addItem: "添加商品",
     generate: "生成效果图",
@@ -79,13 +68,10 @@ const copy = {
     fitWarning: "尺寸有提醒",
     fitBlocked: "尺寸不建议",
     fitPending: "待校验",
-    saveBudget: "保存预算",
-    budgetDialogTitle: "调整总预算",
-    budgetDialogDescription: "保存后会重算未锁定商品的预算区间。",
-    cancel: "取消",
     roomPhoto: "房间照片",
     noItems: "还没有商品",
     noItemsDescription: "先往这个 Plan 里放几件商品，预算和状态管理就会开始工作。",
+    draft: "进行中",
   },
   en: {
     title: "Furnishing Cart",
@@ -101,8 +87,6 @@ export default function FurnishingPlanPage({
   const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
   const [roomInfo, setRoomInfo] = useState<RoomSummary | null>(null);
   const [itemEntries, setItemEntries] = useState<PlanItemEntry[]>([]);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [budgetInput, setBudgetInput] = useState("");
   const [isSavingBudget, setIsSavingBudget] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   const {
@@ -158,51 +142,14 @@ export default function FurnishingPlanPage({
         const room = Array.isArray(payload.data.rooms)
           ? payload.data.rooms[0] || null
           : payload.data.rooms || null;
-
         const sortedItems = [...(payload.data.furnishing_plan_items || [])].sort(
           (left, right) => left.sort_order - right.sort_order,
         );
 
         if (!ignore) {
-          setPlan({
-            id: payload.data.id,
-            room_id: payload.data.room_id,
-            name: payload.data.name,
-            total_budget: payload.data.total_budget,
-            current_total: payload.data.current_total,
-            style_preference: payload.data.style_preference,
-            status: payload.data.status,
-            created_at: payload.data.created_at,
-            updated_at: payload.data.updated_at,
-          });
-          setItems(
-            sortedItems.map((item) => ({
-              id: item.id,
-              plan_id: item.plan_id,
-              category: item.category,
-              source: item.source,
-              locked: item.locked,
-              product_id: item.product_id,
-              custom_name: item.custom_name,
-              custom_image_url: item.custom_image_url,
-              custom_source_url: item.custom_source_url,
-              custom_width_mm: item.custom_width_mm,
-              custom_depth_mm: item.custom_depth_mm,
-              custom_height_mm: item.custom_height_mm,
-              price: item.price,
-              price_range_min: item.price_range_min,
-              price_range_max: item.price_range_max,
-              fit_status: item.fit_status,
-              fit_message: item.fit_message,
-              status: item.status,
-              purchased_at: item.purchased_at,
-              sort_order: item.sort_order,
-              created_at: item.created_at,
-            })),
-          );
+          syncPlanState(payload.data, sortedItems, room, setPlan, setItems);
           setItemEntries(sortedItems);
           setRoomInfo(room);
-          setBudgetInput(String(payload.data.total_budget ?? ""));
         }
       } catch (error) {
         if (!ignore) {
@@ -224,8 +171,12 @@ export default function FurnishingPlanPage({
 
   const purchasedCount = itemEntries.filter((item) => item.status === "purchased").length;
   const totalCount = itemEntries.filter((item) => item.status !== "abandoned").length;
+  const lockedTotal = itemEntries
+    .filter((item) => item.locked && item.price != null)
+    .reduce((sum, item) => sum + (item.price ?? 0), 0);
   const totalBudget = currentPlan?.total_budget ?? 0;
-  const spentAmount = currentPlan?.current_total ?? itemEntries.reduce((sum, item) => sum + (item.price ?? 0), 0);
+  const spentAmount =
+    currentPlan?.current_total ?? itemEntries.reduce((sum, item) => sum + (item.price ?? 0), 0);
   const remainingBudget = totalBudget - spentAmount;
   const progressRatio = totalBudget > 0 ? Math.min(Math.max(spentAmount / totalBudget, 0), 1.25) : 0;
 
@@ -250,7 +201,9 @@ export default function FurnishingPlanPage({
       return;
     }
 
-    const response = await fetch(`/api/furnishing/plan/${resolvedPlanId}`, { cache: "no-store" });
+    const response = await fetch(`/api/furnishing/plan/${resolvedPlanId}`, {
+      cache: "no-store",
+    });
     const payload = (await response.json()) as { success: boolean; data?: PlanResponse; error?: string };
 
     if (!response.ok || !payload.success || !payload.data) {
@@ -264,55 +217,13 @@ export default function FurnishingPlanPage({
       (left, right) => left.sort_order - right.sort_order,
     );
 
-    setPlan({
-      id: payload.data.id,
-      room_id: payload.data.room_id,
-      name: payload.data.name,
-      total_budget: payload.data.total_budget,
-      current_total: payload.data.current_total,
-      style_preference: payload.data.style_preference,
-      status: payload.data.status,
-      created_at: payload.data.created_at,
-      updated_at: payload.data.updated_at,
-    });
-    setItems(
-      sortedItems.map((item) => ({
-        id: item.id,
-        plan_id: item.plan_id,
-        category: item.category,
-        source: item.source,
-        locked: item.locked,
-        product_id: item.product_id,
-        custom_name: item.custom_name,
-        custom_image_url: item.custom_image_url,
-        custom_source_url: item.custom_source_url,
-        custom_width_mm: item.custom_width_mm,
-        custom_depth_mm: item.custom_depth_mm,
-        custom_height_mm: item.custom_height_mm,
-        price: item.price,
-        price_range_min: item.price_range_min,
-        price_range_max: item.price_range_max,
-        fit_status: item.fit_status,
-        fit_message: item.fit_message,
-        status: item.status,
-        purchased_at: item.purchased_at,
-        sort_order: item.sort_order,
-        created_at: item.created_at,
-      })),
-    );
+    syncPlanState(payload.data, sortedItems, room, setPlan, setItems);
     setItemEntries(sortedItems);
     setRoomInfo(room);
-    setBudgetInput(String(payload.data.total_budget ?? ""));
   }
 
-  async function handleBudgetSave() {
-    if (!resolvedPlanId) {
-      return;
-    }
-
-    const parsedBudget = Number(budgetInput);
-    if (Number.isNaN(parsedBudget) || parsedBudget < 0) {
-      toast.error("请输入有效预算");
+  async function handleBudgetChange(nextBudget: number) {
+    if (!resolvedPlanId || isSavingBudget) {
       return;
     }
 
@@ -322,7 +233,7 @@ export default function FurnishingPlanPage({
       const response = await fetch("/api/furnishing/adjust-budget", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan_id: resolvedPlanId, new_budget: parsedBudget }),
+        body: JSON.stringify({ plan_id: resolvedPlanId, new_budget: nextBudget }),
       });
 
       const payload = (await response.json()) as {
@@ -331,16 +242,14 @@ export default function FurnishingPlanPage({
         error?: string;
       };
 
-      updateBudget(parsedBudget);
+      updateBudget(nextBudget);
       await reloadPlan();
 
       if (!response.ok || !payload.success) {
-        toast.warning(payload.error || "预算已更新，但当前锁定商品已超出预算");
+        toast.warning(payload.error || "预算已更新，但锁定商品已经超出预算");
       } else {
         toast.success("预算已更新");
       }
-
-      setDialogOpen(false);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "调整预算失败");
     } finally {
@@ -408,11 +317,8 @@ export default function FurnishingPlanPage({
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
       <div className="flex items-center justify-between gap-3">
         <BackLinkButton href="/dashboard" />
-        <div className="flex gap-2">
-          <Button variant="outline" className="h-11" onClick={() => setDialogOpen(true)}>
-            <Tag className="h-4 w-4" />
-            {t.editBudget}
-          </Button>
+        <div className="rounded-full bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
+          {currentPlan?.status || t.draft}
         </div>
       </div>
 
@@ -437,9 +343,7 @@ export default function FurnishingPlanPage({
 
         <Card className="border-border bg-card">
           <CardHeader className="space-y-2">
-            <CardTitle className="text-2xl font-serif">
-              {currentPlan?.name || t.title}
-            </CardTitle>
+            <CardTitle className="text-2xl font-serif">{currentPlan?.name || t.title}</CardTitle>
             <CardDescription>
               {roomInfo?.name || "未关联 Room"} · {roomInfo?.room_type || "待补充类型"}
             </CardDescription>
@@ -447,9 +351,7 @@ export default function FurnishingPlanPage({
           <CardContent className="space-y-4">
             <div className="space-y-1">
               <p className="text-sm text-muted-foreground">{t.budget}</p>
-              <p className="text-3xl font-semibold text-foreground">
-                {formatCurrency(totalBudget)}
-              </p>
+              <p className="text-3xl font-semibold text-foreground">{formatCurrency(totalBudget)}</p>
             </div>
 
             <div className="space-y-2">
@@ -466,6 +368,12 @@ export default function FurnishingPlanPage({
                 </span>
               </p>
             </div>
+
+            <BudgetSlider
+              totalBudget={totalBudget}
+              lockedTotal={lockedTotal}
+              onBudgetChange={handleBudgetChange}
+            />
           </CardContent>
         </Card>
       </section>
@@ -500,7 +408,13 @@ export default function FurnishingPlanPage({
               return (
                 <Card
                   key={item.id}
-                  className={`border-border ${isPurchased ? "bg-emerald-50/60" : isAbandoned ? "bg-muted/60" : "bg-card"}`}
+                  className={`border-border ${
+                    isPurchased
+                      ? "bg-emerald-50/60"
+                      : isAbandoned
+                        ? "bg-muted/60"
+                        : "bg-card"
+                  }`}
                 >
                   <CardContent className="p-4">
                     <div className="flex flex-col gap-4 md:flex-row">
@@ -541,11 +455,17 @@ export default function FurnishingPlanPage({
                               </span>
                             </div>
                             <h3
-                              className={`text-lg font-semibold text-foreground ${isAbandoned ? "line-through opacity-60" : ""}`}
+                              className={`text-lg font-semibold text-foreground ${
+                                isAbandoned ? "line-through opacity-60" : ""
+                              }`}
                             >
                               {itemName}
                             </h3>
-                            <p className={`text-sm ${isAbandoned ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                            <p
+                              className={`text-sm ${
+                                isAbandoned ? "line-through text-muted-foreground" : "text-foreground"
+                              }`}
+                            >
                               {formatItemPrice(item)}
                             </p>
                           </div>
@@ -610,10 +530,18 @@ export default function FurnishingPlanPage({
       </section>
 
       <div className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-3xl border border-border bg-background/95 p-4 shadow-lg backdrop-blur md:flex-row">
-        <Button variant="outline" className="h-12 flex-1" onClick={() => handlePlaceholder("V4 商品导入入口将在后续阶段接入")}>
+        <Button
+          variant="outline"
+          className="h-12 flex-1"
+          onClick={() => handlePlaceholder("V4 商品导入入口将在后续阶段接入")}
+        >
           {t.addItem}
         </Button>
-        <Button variant="outline" className="h-12 flex-1" onClick={() => handlePlaceholder("V4 效果图生成入口将在后续阶段接入")}>
+        <Button
+          variant="outline"
+          className="h-12 flex-1"
+          onClick={() => handlePlaceholder("V4 效果图生成入口将在后续阶段接入")}
+        >
           <Sparkles className="h-4 w-4" />
           {t.generate}
         </Button>
@@ -621,37 +549,56 @@ export default function FurnishingPlanPage({
           {t.share}
         </Button>
       </div>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{t.budgetDialogTitle}</DialogTitle>
-            <DialogDescription>{t.budgetDialogDescription}</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label htmlFor="plan-budget">{t.budget}</Label>
-            <Input
-              id="plan-budget"
-              type="number"
-              min={0}
-              step={1000}
-              value={budgetInput}
-              onChange={(event) => setBudgetInput(event.target.value)}
-              placeholder="例如：60000"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t.cancel}
-            </Button>
-            <Button onClick={() => void handleBudgetSave()} disabled={isSavingBudget}>
-              {isSavingBudget ? "保存中..." : t.saveBudget}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </main>
   );
+}
+
+function syncPlanState(
+  plan: PlanResponse,
+  sortedItems: PlanItemEntry[],
+  room: RoomSummary | null,
+  setPlan: (plan: FurnishingPlan) => void,
+  setItems: (items: FurnishingPlanItem[]) => void,
+) {
+  setPlan({
+    id: plan.id,
+    room_id: plan.room_id,
+    name: plan.name,
+    total_budget: plan.total_budget,
+    current_total: plan.current_total,
+    style_preference: plan.style_preference,
+    status: plan.status,
+    created_at: plan.created_at,
+    updated_at: plan.updated_at,
+  });
+
+  setItems(
+    sortedItems.map((item) => ({
+      id: item.id,
+      plan_id: item.plan_id,
+      category: item.category,
+      source: item.source,
+      locked: item.locked,
+      product_id: item.product_id,
+      custom_name: item.custom_name,
+      custom_image_url: item.custom_image_url,
+      custom_source_url: item.custom_source_url,
+      custom_width_mm: item.custom_width_mm,
+      custom_depth_mm: item.custom_depth_mm,
+      custom_height_mm: item.custom_height_mm,
+      price: item.price,
+      price_range_min: item.price_range_min,
+      price_range_max: item.price_range_max,
+      fit_status: item.fit_status,
+      fit_message: item.fit_message,
+      status: item.status,
+      purchased_at: item.purchased_at,
+      sort_order: item.sort_order,
+      created_at: item.created_at,
+    })),
+  );
+
+  void room;
 }
 
 function formatCurrency(value: number) {
