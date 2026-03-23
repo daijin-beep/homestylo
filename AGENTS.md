@@ -1,162 +1,119 @@
-# HomeStylo — Codex Agent Instructions
+# HomeStylo - Codex Agent Instructions
 
 ## Project Overview
 
-HomeStylo is an AI-powered furniture decision tool for the Chinese market. Core value proposition: "买大件前，先放进你家看看" (Before buying big furniture, see it in your own home first).
+HomeStylo is an AI-powered soft furnishing decision platform. It helps homeowners who have completed hard decoration (精装房 / 翻新) make every soft furnishing purchase decision based on their real home.
 
-Users upload a photo of their room → import candidate furniture they're considering → AI generates realistic preview images showing the furniture in their actual space → users compare 3 candidates side-by-side with size validation and risk warnings → export shopping list with budget tracking.
+Core flow: User uploads photos of their real home -> AI analyzes space (dimensions, wall color, floor material, lighting) -> Sets budget -> AI recommends a complete furnishing plan within budget -> Each item shown at precise scale in the user's own photo -> User can lock their own picks, AI adjusts remaining items to fit remaining budget -> Home state persists and evolves with each purchase.
 
-This is NOT a general interior design platform. It is a **purchase decision tool** focused on reducing the risk of buying wrong large furniture items.
+Key differentiator: Unlike tools that work from floor plans (酷家乐 / 生境 AI), HomeStylo works from real photos - preserving the user's actual wall colors, floor textures, and lighting conditions. The output looks like "your home with new furniture" not "a virtual showroom."
+
+This is NOT a one-time design tool. It is a **persistent home platform** where the user's home lives and evolves over their 3-6 month furnishing period.
 
 ## Tech Stack
 
-- **Framework**: Next.js 14 with App Router, TypeScript, `src/` directory
+- **Framework**: Next.js 16 with App Router, TypeScript, `src/` directory
 - **Styling**: Tailwind CSS + shadcn/ui components
 - **State Management**: Zustand
 - **Database**: Supabase (PostgreSQL + Auth + Storage)
 - **Object Storage**: Cloudflare R2 (for effect images and product images)
-- **AI Generation**: Replicate API (FLUX Depth Pro, FLUX Fill Pro, GroundedSAM, Marigold)
-- **AI Analysis**: Anthropic Claude API (Vision for space analysis, hotspot mapping)
-- **Deployment**: Vercel (Hong Kong region)
+- **AI Generation**: Replicate API (UniDepthV2, VGGT, BiRefNet, SAM 3, IC-Light V2, FLUX Fill Pro)
+- **AI Analysis**: Anthropic Claude API (Vision for space analysis, product image classification)
+- **Deployment**: Vercel
 - **Package Manager**: npm
+
+## Core Data Model
+
+```text
+Home (用户的家)
+├── Room (房间)[]
+│   ├── original_photo (首次上传的照片)
+│   ├── current_photo (最新状态照片)
+│   ├── spatial_analysis (AI 空间分析结果)
+│   └── FurnishingPlan (软装清单)[]
+│       ├── total_budget (总预算)
+│       ├── items[] (商品列表，每件有 locked/unlocked 状态)
+│       └── EffectImage[] (效果图)
+```
+
+Home is the top-level persistent entity. Scheme (from V3.1) is deprecated - use Room + FurnishingPlan instead.
+
+## Rendering Pipeline (Route D)
+
+Paste-and-blend with edge inpainting:
+1. Product image preprocessing (classify + extract via BiRefNet/SAM3)
+2. Room depth analysis (UniDepthV2 + VGGT, cached per room photo)
+3. Precise compositing (math-based scale + OpenCV perspective + alpha blend)
+4. Edge refinement (edge+shadow mask -> IC-Light -> FLUX Fill inpaint only edges, furniture body untouched)
+
+Key principle: **Furniture pixels are NEVER modified. AI only refines edges and shadows.**
 
 ## Project Structure
 
-```
+```text
 homestylo/
-├── AGENTS.md                    # This file — Codex reads this automatically
+├── AGENTS.md
 ├── docs/
-│   ├── PRD_SUMMARY.md           # Product requirements summary
-│   ├── DESIGN_SYSTEM.md         # Design knowledge base for FLUX prompts
-│   ├── DATABASE_SCHEMA.sql      # Supabase table definitions
-│   └── PHASE_0_TASKS.md         # Current phase task cards
+│   ├── PRD_SUMMARY.md
+│   ├── DESIGN_SYSTEM.md
+│   ├── DATABASE_SCHEMA.sql
+│   └── PHASE_7_TASKS.md          # Current phase
 ├── src/
 │   ├── app/
-│   │   ├── page.tsx             # Landing page
-│   │   ├── layout.tsx           # Root layout with AuthProvider
-│   │   ├── login/page.tsx       # Phone OTP login
-│   │   ├── dashboard/page.tsx   # User's scheme list
-│   │   ├── upload/page.tsx      # Room photo upload
-│   │   ├── analyze/[schemeId]/page.tsx    # Space analysis + confirmation
-│   │   ├── import/[schemeId]/page.tsx     # Candidate product import (CORE ENTRY)
-│   │   ├── style/[schemeId]/page.tsx      # Style selection (fallback path)
-│   │   ├── generate/[schemeId]/page.tsx   # Generation progress
-│   │   ├── result/[schemeId]/page.tsx     # Effect image + hotspots
-│   │   ├── compare/[schemeId]/page.tsx    # 3-way comparison
-│   │   ├── accounting/[schemeId]/page.tsx # Budget tracking
-│   │   ├── share/[schemeId]/page.tsx      # Share generation
-│   │   ├── s/[shareId]/page.tsx           # Public share view (no auth)
-│   │   ├── pricing/page.tsx               # Pricing page
-│   │   ├── admin/products/page.tsx        # SKU management
+│   │   ├── page.tsx               # Landing page
+│   │   ├── layout.tsx             # Root layout
+│   │   ├── login/                 # Auth
+│   │   ├── dashboard/             # User's homes list
+│   │   ├── home/[homeId]/         # Home overview (rooms list)
+│   │   ├── room/[roomId]/         # Room detail + furnishing plan
+│   │   ├── furnishing/[planId]/   # Furnishing cart UI
+│   │   ├── generate/[planId]/     # Generation progress
+│   │   ├── result/[planId]/       # Effect image + hotspots
 │   │   └── api/
-│   │       ├── room/analyze/route.ts
-│   │       ├── scheme/recommend/route.ts
-│   │       ├── scheme/generate/route.ts
-│   │       ├── scheme/replace/route.ts
-│   │       ├── product/validate/route.ts
-│   │       ├── product/import-screenshot/route.ts
-│   │       └── share/generate/route.ts
+│   │       ├── home/              # Home CRUD
+│   │       ├── room/analyze/      # Space analysis
+│   │       ├── furnishing/        # Plan CRUD, budget adjustment
+│   │       ├── generate/          # Effect image generation
+│   │       ├── product/           # Product import, validate
+│   │       └── recommend/         # AI furniture recommendation
 │   ├── components/
-│   │   ├── ui/                  # shadcn/ui components
-│   │   ├── AuthProvider.tsx
-│   │   ├── SchemeNavigation.tsx  # Progress bar across scheme pages
-│   │   ├── ProductCard.tsx
-│   │   ├── HotspotOverlay.tsx
-│   │   ├── RiskAlert.tsx
-│   │   ├── BudgetProgress.tsx
-│   │   └── LoadingGeneration.tsx
+│   │   ├── ui/                    # shadcn/ui
+│   │   ├── home/                  # Home-related components
+│   │   ├── furnishing/            # Furnishing cart components
+│   │   ├── generate/              # Loading + progressive preview
+│   │   └── result/                # Effect image display
 │   └── lib/
-│       ├── supabase/
-│       │   ├── client.ts        # Browser-side Supabase client
-│       │   └── server.ts        # Server-side Supabase client
+│       ├── supabase/              # DB clients
 │       ├── store/
-│       │   ├── schemeStore.ts   # Main Zustand store
-│       │   └── userStore.ts
-│       ├── api/
-│       │   ├── replicate.ts     # Replicate API wrapper with polling
-│       │   ├── claude.ts        # Claude Vision API wrapper
-│       │   └── r2.ts            # R2 upload/download wrapper
-│       ├── types/index.ts       # All TypeScript type definitions
-│       ├── constants.ts         # Style definitions, budget tiers, categories
-│       └── utils.ts             # Common utilities
+│       │   ├── homeStore.ts       # Home + Room state
+│       │   └── furnishingStore.ts # Furnishing plan state
+│       ├── api/                   # External API wrappers
+│       ├── types/index.ts         # All TypeScript types
+│       ├── generation/            # Rendering pipeline (Route D)
+│       ├── validation/            # Size validation engine
+│       ├── recommendation/        # AI recommendation + budget allocation
+│       └── constants.ts
 ```
 
 ## Coding Conventions
 
-### General Rules
-- Always use TypeScript with strict mode
-- Mobile-first responsive design — always test at 375px width mentally
-- All UI text in Chinese (zh-CN) — button labels, placeholders, error messages, everything user-facing
+- TypeScript strict mode
+- Mobile-first responsive design
+- **UI text: bilingual (English primary, Chinese secondary)**
 - Code comments in English
-- File names in kebab-case, component names in PascalCase
-- Use `'use client'` directive only when the component needs client-side interactivity
-- Prefer Server Components by default
-
-### Styling Rules
-- Use Tailwind CSS utility classes, no custom CSS files
-- Use shadcn/ui components for forms, dialogs, buttons, cards
-- Brand colors defined in tailwind.config.ts:
-  - primary: `#8B5A37` (warm brown)
-  - background: `#F5F0E9` (cream)
-  - foreground: `#2B3A4A` (dark blue-gray)
-  - accent: `#E07B3C` (warm orange)
-- Touch targets minimum 48px on mobile
-- Font: Noto Sans SC (body), Noto Serif SC (headings) from Google Fonts
-
-### State Management
-- Use the Zustand store at `src/lib/store/schemeStore.ts` for all scheme-related state
-- Do NOT create separate useState for data that belongs in the store
-- Always update store when Supabase data changes
-
-### API Routes
-- All API routes at `src/app/api/` use Route Handlers (export async function POST/GET)
-- Always validate input at the start of each route
-- Return consistent JSON shape: `{ success: boolean, data?: any, error?: string }`
-- Use try-catch with meaningful error messages
-- For long-running operations (image generation), use async pattern:
-  1. POST creates a job and returns job_id immediately
-  2. GET `/api/.../status?id=xxx` for polling
-
-### Supabase Rules
-- Always use the client from `src/lib/supabase/client.ts` (browser) or `server.ts` (API routes)
-- Never expose `SUPABASE_SERVICE_ROLE_KEY` to the client
-- All queries on user-owned data must filter by user_id (RLS handles this, but be explicit)
-- Use Supabase Auth Phone OTP for login
-
-### Replicate API
-- Always use the wrapper at `src/lib/api/replicate.ts`
-- Default timeout: 90 seconds
-- Polling interval: 2 seconds
-- Max retries on timeout: 2
-- Handle cold-start delays gracefully with user-facing progress messages
-
-### Git Workflow
-- Commit after each completed task
-- Commit message format: `phase-X/task-Y: brief description`
-- Push at end of each work session
+- File names kebab-case, components PascalCase
+- `'use client'` only when needed, prefer Server Components
+- Tailwind CSS + shadcn/ui, no custom CSS files
+- Zustand for client state, Supabase for persistence
+- API routes return `{ success: boolean, data?: any, error?: string }`
+- Git commit format: `phase-X/task-Y: brief description`
 
 ## Key Product Decisions
 
-1. **Main flow is "import your candidate → preview → compare"**, NOT "pick a style → AI recommends"
-2. Style selection is a fallback path when user has no candidates
-3. Maximum 3 candidates for comparison per furniture category
-4. Size validation is MANDATORY before any replacement generation
-5. Risk warnings must be shown for: tight gaps (<100mm), narrow passages (<600mm), oversized furniture
-6. Free tier: 1 low-res watermarked image. Paid tiers: ¥9.9 / ¥29.9 / ¥59.9
-7. MVP categories (P0): sofa, bed, dining table, TV cabinet, curtain + accessories (rug, floor lamp, painting, pillows, side table, plants)
-8. All product links point to Taobao/JD (Chinese e-commerce)
-
-## Files to Read
-
-Before starting any task, read these files for context:
-- `docs/PRD_SUMMARY.md` — Product requirements
-- `docs/DESIGN_SYSTEM.md` — Design knowledge for style/color decisions
-- `docs/DATABASE_SCHEMA.sql` — Database structure
-- Current phase task cards in `docs/PHASE_X_TASKS.md`
-
-## Testing
-
-- Run `npm run lint` before committing
-- Run `npm run build` to check for TypeScript errors
-- Test all pages at mobile width (375px) and desktop (1440px)
-- Test the happy path end-to-end after completing each phase
+1. **Home is the top-level entity**, not Scheme
+2. Furnishing Cart (软装清单) is budget-aware: user sets total budget, AI allocates across categories
+3. User-uploaded products are automatically locked; AI-recommended products are unlocked and can be swapped when budget changes
+4. Effect images use Route D: precise paste-and-blend + edge-only AI inpainting
+5. Progressive rendering: rough composite in <5s, refined version in 25-40s
+6. Size validation is MANDATORY before placement
+7. Support both US market (Amazon/Wayfair, USD, English) and CN market (Taobao/JD, RMB, Chinese)
