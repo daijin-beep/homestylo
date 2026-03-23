@@ -14,6 +14,8 @@ import {
 import { toast } from "sonner";
 import { BackLinkButton } from "@/components/BackLinkButton";
 import { BudgetSlider } from "@/components/furnishing/BudgetSlider";
+import { PurchaseProgress } from "@/components/furnishing/PurchaseProgress";
+import { ShareCard } from "@/components/furnishing/ShareCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useFurnishingStore } from "@/lib/store/furnishingStore";
@@ -147,7 +149,7 @@ export default function FurnishingPlanPage({
         );
 
         if (!ignore) {
-          syncPlanState(payload.data, sortedItems, room, setPlan, setItems);
+          syncPlanState(payload.data, sortedItems, setPlan, setItems);
           setItemEntries(sortedItems);
           setRoomInfo(room);
         }
@@ -217,7 +219,7 @@ export default function FurnishingPlanPage({
       (left, right) => left.sort_order - right.sort_order,
     );
 
-    syncPlanState(payload.data, sortedItems, room, setPlan, setItems);
+    syncPlanState(payload.data, sortedItems, setPlan, setItems);
     setItemEntries(sortedItems);
     setRoomInfo(room);
   }
@@ -311,7 +313,32 @@ export default function FurnishingPlanPage({
     toast.info(message);
   }
 
+  function handleScrollToShare() {
+    const element = document.getElementById("plan-share-card");
+    if (!element) {
+      toast.info("分享卡正在准备中");
+      return;
+    }
+
+    element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   const roomPhoto = roomInfo?.current_photo_url || roomInfo?.original_photo_url;
+  const shareItems = itemEntries
+    .filter((item) => item.status !== "abandoned")
+    .map((item) => ({
+      id: item.id,
+      name:
+        item.custom_name ||
+        item.products?.name ||
+        ROOM_CATEGORY_LABELS[item.category] ||
+        item.category,
+      category: item.category,
+      status: item.status,
+      price: item.price,
+      priceRangeMin: item.price_range_min ?? item.products?.price_min ?? null,
+      priceRangeMax: item.price_range_max ?? item.products?.price_max ?? null,
+    }));
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
@@ -377,6 +404,13 @@ export default function FurnishingPlanPage({
           </CardContent>
         </Card>
       </section>
+
+      <PurchaseProgress
+        purchasedCount={purchasedCount}
+        totalCount={totalCount}
+        spentAmount={spentAmount}
+        remainingBudget={remainingBudget}
+      />
 
       <section className="space-y-4">
         <div className="flex items-center justify-between gap-3">
@@ -529,6 +563,19 @@ export default function FurnishingPlanPage({
         )}
       </section>
 
+      {currentPlan ? (
+        <ShareCard
+          plan={{
+            id: currentPlan.id,
+            name: currentPlan.name || t.title,
+            total_budget: currentPlan.total_budget,
+            current_total: currentPlan.current_total,
+          }}
+          items={shareItems}
+          effectImageUrl={roomPhoto ?? undefined}
+        />
+      ) : null}
+
       <div className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-3xl border border-border bg-background/95 p-4 shadow-lg backdrop-blur md:flex-row">
         <Button
           variant="outline"
@@ -545,7 +592,7 @@ export default function FurnishingPlanPage({
           <Sparkles className="h-4 w-4" />
           {t.generate}
         </Button>
-        <Button className="h-12 flex-1" onClick={() => handlePlaceholder("清单分享卡会在 8.6 接入")}>
+        <Button className="h-12 flex-1" onClick={handleScrollToShare}>
           {t.share}
         </Button>
       </div>
@@ -556,7 +603,6 @@ export default function FurnishingPlanPage({
 function syncPlanState(
   plan: PlanResponse,
   sortedItems: PlanItemEntry[],
-  room: RoomSummary | null,
   setPlan: (plan: FurnishingPlan) => void,
   setItems: (items: FurnishingPlanItem[]) => void,
 ) {
@@ -597,8 +643,6 @@ function syncPlanState(
       created_at: item.created_at,
     })),
   );
-
-  void room;
 }
 
 function formatCurrency(value: number) {
