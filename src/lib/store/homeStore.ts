@@ -2,12 +2,17 @@ import { create } from "zustand";
 import type { Home, Room } from "@/lib/types";
 
 interface HomeStoreState {
+  homes: Home[];
   currentHome: Home | null;
   rooms: Room[];
   isLoading: boolean;
 }
 
 interface HomeStoreActions {
+  setHomes: (homes: Home[]) => void;
+  addHome: (home: Home) => void;
+  updateHome: (homeId: string, updates: Partial<Home>) => void;
+  removeHome: (homeId: string) => void;
   setHome: (home: Home) => void;
   setRooms: (rooms: Room[]) => void;
   addRoom: (room: Room) => void;
@@ -20,6 +25,7 @@ interface HomeStoreActions {
 type HomeStore = HomeStoreState & HomeStoreActions;
 
 const initialState: HomeStoreState = {
+  homes: [],
   currentHome: null,
   rooms: [],
   isLoading: false,
@@ -27,6 +33,20 @@ const initialState: HomeStoreState = {
 
 export const useHomeStore = create<HomeStore>((set) => ({
   ...initialState,
+
+  setHomes: (homes) => set({ homes }),
+
+  addHome: (home) => set((state) => ({ homes: [...state.homes, home] })),
+
+  updateHome: (homeId, updates) =>
+    set((state) => ({
+      homes: state.homes.map((home) => (home.id === homeId ? { ...home, ...updates } : home)),
+    })),
+
+  removeHome: (homeId) =>
+    set((state) => ({
+      homes: state.homes.filter((home) => home.id !== homeId),
+    })),
 
   setHome: (home) => set({ currentHome: home }),
 
