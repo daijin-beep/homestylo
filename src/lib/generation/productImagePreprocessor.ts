@@ -64,13 +64,18 @@ Respond in JSON: {
 
 const BACKGROUND_REMOVAL_MODELS: ModelConfig[] = [
   {
-    model: "cjwbw/birefnet",
+    model: "851-labs/background-remover",
     buildInput: (imageUrl) => ({
       image: imageUrl,
     }),
   },
   {
-    // TODO: replace with the best available Replicate background removal model when IDs change.
+    model: "bria/remove-background",
+    buildInput: (imageUrl) => ({
+      image: imageUrl,
+    }),
+  },
+  {
     model: "lucataco/remove-bg",
     buildInput: (imageUrl) => ({
       image: imageUrl,
@@ -78,17 +83,14 @@ const BACKGROUND_REMOVAL_MODELS: ModelConfig[] = [
   },
 ];
 
-const SCENE_SEGMENTATION_MODELS: ModelConfig[] = [
-  {
-    // TODO: validate the exact SAM 2 image segmentation model + prompt schema on Replicate.
-    model: "meta/sam-2-video",
-    buildInput: (imageUrl, prompt) => ({
-      image: imageUrl,
-      prompt: prompt ?? "segment the main furniture product",
-    }),
-  },
-  ...BACKGROUND_REMOVAL_MODELS,
-];
+const SCENE_SEGMENTATION_MODELS: ModelConfig[] = [...BACKGROUND_REMOVAL_MODELS];
+
+const DEFAULT_IMAGE_HEADERS = {
+  Accept: "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+} satisfies Record<string, string>;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -241,7 +243,21 @@ function extractOutputCandidate(output: unknown): OutputCandidate | null {
 }
 
 async function downloadBufferFromUrl(imageUrl: string) {
-  const response = await fetch(imageUrl, { cache: "no-store" });
+  const headers = { ...DEFAULT_IMAGE_HEADERS } as Record<string, string>;
+
+  try {
+    const hostname = new URL(imageUrl).hostname.toLowerCase();
+    if (hostname === "m.media-amazon.com") {
+      headers.Referer = "https://www.amazon.com/";
+    }
+  } catch {
+    // Ignore invalid URL parsing here and let fetch raise the real error below.
+  }
+
+  const response = await fetch(imageUrl, {
+    cache: "no-store",
+    headers,
+  });
   if (!response.ok) {
     throw new Error(`Failed to download image: ${response.status} ${response.statusText}`);
   }
@@ -344,6 +360,12 @@ async function runExtractionModel(
       return await downloadModelOutput(output);
     } catch (error) {
       const message = error instanceof Error ? error.message : "unknown model error";
+      console.error("[productImagePreprocessor] extraction model failed", {
+        model: modelConfig.model,
+        imageUrl,
+        prompt: prompt ?? null,
+        error: message,
+      });
       errors.push(`${modelConfig.model}: ${message}`);
     }
   }
@@ -389,28 +411,41 @@ export async function preprocessProductImage(
   let classification: ProductImageClassification = "other";
 
   try {
-    const detected = await classifyProductImage(imageUrl);
+    const downloadedSource = await downloadBufferFromUrl(imageUrl);
+    const normalizedSourceBuffer = Buffer.from(
+      await sharp(downloadedSource.buffer)
+        .ensureAlpha()
+        .png()
+        .toBuffer(),
+    );
+    const normalizedSourceUrl = await uploadToR2(
+      normalizedSourceBuffer,
+      `product-preprocess/${planId}/source-original-${Date.now()}.png`,
+      "image/png",
+    );
+
+    const detected = await classifyProductImage(normalizedSourceUrl);
     classification = detected.type;
 
-    let sourceBuffer: Uint8Array = new Uint8Array(
-      Buffer.from((await downloadBufferFromUrl(imageUrl)).buffer),
-    );
+    let sourceBuffer: Uint8Array = new Uint8Array(normalizedSourceBuffer);
     if (classification === "multi_angle") {
       sourceBuffer = await cropFrontView(sourceBuffer, detected.front_view_region);
     }
 
     const preparedSource = Buffer.from(
       await sharp(sourceBuffer)
-      .ensureAlpha()
-      .png()
-      .toBuffer(),
+        .ensureAlpha()
+        .png()
+        .toBuffer(),
     );
-
-    const preparedSourceUrl = await uploadToR2(
-      preparedSource,
-      `product-preprocess/${planId}/source-${Date.now()}.png`,
-      "image/png",
-    );
+    const preparedSourceUrl =
+      classification === "multi_angle"
+        ? await uploadToR2(
+            preparedSource,
+            `product-preprocess/${planId}/source-${Date.now()}.png`,
+            "image/png",
+          )
+        : normalizedSourceUrl;
 
     const extracted = await runExtractionModel(
       getTargetModels(classification),
@@ -450,7 +485,13 @@ export async function preprocessProductImage(
       processingTimeMs: Date.now() - startedAt,
     };
   } catch (error) {
-    console.error("[productImagePreprocessor] failed", error);
+    console.error("[productImagePreprocessor] failed", {
+      imageUrl,
+      planId,
+      classification,
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     return {
       success: false,
       extractedImageUrl: null,
