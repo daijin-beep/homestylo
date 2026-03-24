@@ -6,7 +6,19 @@ interface EffectImageStatusRow {
   image_url: string | null;
   error_message: string | null;
   version: number;
-  generation_params: Record<string, unknown> | null;
+  generation_params:
+    | {
+        progress?: {
+          stage?: string;
+          message?: string;
+          currentItem?: string;
+          currentIndex?: number;
+          totalItems?: number;
+          previewUrl?: string | null;
+        };
+        roughPreviewUrl?: string | null;
+      }
+    | null;
   hotspot_map:
     | Array<{
         productId?: string;
@@ -37,35 +49,58 @@ function createServiceRoleClient() {
   });
 }
 
+function mapLegacyStage(status: string) {
+  switch (status) {
+    case "depth":
+      return "analyzing";
+    case "flux":
+      return "placing";
+    case "hotspot":
+      return "refining";
+    case "done":
+      return "done";
+    default:
+      return "classifying";
+  }
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const schemeId = url.searchParams.get("scheme_id")?.trim();
+    const planId = url.searchParams.get("plan_id")?.trim();
 
-    if (!schemeId) {
+    if (!schemeId && !planId) {
       return NextResponse.json(
-        { success: false, error: "缺少 scheme_id。" },
+        { success: false, error: "缺少 scheme_id 或 plan_id。" },
         { status: 400 },
       );
     }
 
     const supabase = createServiceRoleClient();
-    const { data: record, error } = await supabase
+    let query = supabase
       .from("effect_images")
       .select(
         "generation_status, image_url, error_message, version, generation_params, hotspot_map",
       )
-      .eq("scheme_id", schemeId)
       .order("version", { ascending: false })
-      .limit(1)
-      .single<EffectImageStatusRow>();
+      .limit(1);
+
+    query = planId ? query.eq("plan_id", planId) : query.eq("scheme_id", schemeId!);
+
+    const { data: record, error } = await query.single<EffectImageStatusRow>();
 
     if (error || !record) {
       return NextResponse.json(
         {
           success: true,
           status: "pending",
+          stage: "classifying",
           imageUrl: null,
+          previewUrl: null,
+          currentItem: null,
+          currentIndex: null,
+          totalItems: null,
           errorMessage: null,
           version: 0,
           params: null,
@@ -75,10 +110,17 @@ export async function GET(request: Request) {
       );
     }
 
+    const progress = record.generation_params?.progress;
+
     return NextResponse.json({
       success: true,
       status: record.generation_status,
+      stage: progress?.stage ?? mapLegacyStage(record.generation_status),
       imageUrl: record.image_url || null,
+      previewUrl: progress?.previewUrl ?? record.generation_params?.roughPreviewUrl ?? null,
+      currentItem: progress?.currentItem ?? null,
+      currentIndex: progress?.currentIndex ?? null,
+      totalItems: progress?.totalItems ?? null,
       errorMessage: record.error_message || null,
       version: record.version,
       params: record.generation_params,

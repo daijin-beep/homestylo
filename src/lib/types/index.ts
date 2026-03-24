@@ -16,7 +16,19 @@ export type ProductCategory =
   | "plant";
 export type SchemeStatus = "draft" | "analyzing" | "importing" | "generating" | "completed";
 export type ProductRole = "primary" | "secondary" | "accessory";
-export type GenerationStatus = "pending" | "depth" | "flux" | "sam" | "fill" | "hotspot" | "done" | "failed";
+export type GenerationStatus =
+  | "pending"
+  | "depth"
+  | "flux"
+  | "sam"
+  | "fill"
+  | "hotspot"
+  | "classifying"
+  | "analyzing"
+  | "placing"
+  | "refining"
+  | "done"
+  | "failed";
 export type ProductImportSource = "screenshot" | "hero_sku" | "link" | "recommendation";
 export type ProductStatus = "recommended" | "candidate" | "confirmed" | "purchased" | "abandoned";
 export type ShareType = "effect_image" | "shopping_list" | "compare";
@@ -69,6 +81,7 @@ export interface RoomAnalysis {
 export interface EffectImage {
   id: string;
   scheme_id: string;
+  plan_id?: string | null;
   image_url: string;
   hotspot_map: Hotspot[] | null;
   generation_params: Record<string, unknown> | null;

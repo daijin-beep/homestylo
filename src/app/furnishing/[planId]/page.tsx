@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   CircleAlert,
   CircleCheckBig,
@@ -86,6 +87,7 @@ export default function FurnishingPlanPage({
   params: Promise<{ planId: string }>;
 }) {
   const t = copy.zh;
+  const router = useRouter();
   const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
   const [roomInfo, setRoomInfo] = useState<RoomSummary | null>(null);
   const [itemEntries, setItemEntries] = useState<PlanItemEntry[]>([]);
@@ -321,6 +323,15 @@ export default function FurnishingPlanPage({
     }
 
     element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function handleGeneratePreview() {
+    if (!resolvedPlanId) {
+      toast.info("方案仍在加载，请稍后重试");
+      return;
+    }
+
+    router.push(`/generate/${resolvedPlanId}`);
   }
 
   const roomPhoto = roomInfo?.current_photo_url || roomInfo?.original_photo_url;
@@ -587,7 +598,7 @@ export default function FurnishingPlanPage({
         <Button
           variant="outline"
           className="h-12 flex-1"
-          onClick={() => handlePlaceholder("V4 效果图生成入口将在后续阶段接入")}
+          onClick={handleGeneratePreview}
         >
           <Sparkles className="h-4 w-4" />
           {t.generate}

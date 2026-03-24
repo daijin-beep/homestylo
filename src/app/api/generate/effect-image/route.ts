@@ -4,12 +4,15 @@ import { checkGenerationEnv } from "@/lib/generation/envCheck";
 import { renderWithFlux } from "@/lib/generation/fluxRenderer";
 import { detectHotspots } from "@/lib/generation/hotspotDetector";
 import { buildFluxPrompt } from "@/lib/generation/promptBuilder";
+import { runRouteDPipeline } from "@/lib/generation/routeDPipeline";
 import { canGenerate, incrementGeneration } from "@/lib/plan/checkUsage";
 import { requireCurrentAppUser } from "@/lib/plan/userProfile";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
 
 interface GenerateEffectImageBody {
   scheme_id?: string;
+  plan_id?: string;
+  room_id?: string;
 }
 
 interface SchemeRow {
@@ -112,7 +115,7 @@ async function updateEffectStatus(
   }
 }
 
-async function runPipeline(effectImageId: string, schemeId: string) {
+async function runLegacySchemePipeline(effectImageId: string, schemeId: string) {
   const startedAt = Date.now();
   const supabase = createServiceRoleClient();
 
@@ -254,6 +257,94 @@ function schedulePipeline(task: () => Promise<void>) {
   void task();
 }
 
+async function verifyOwnedPlan(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  planId: string,
+  userId: string,
+) {
+  const { data: plan } = await supabase
+    .from("furnishing_plans")
+    .select("id, room_id")
+    .eq("id", planId)
+    .maybeSingle<{ id: string; room_id: string }>();
+
+  if (!plan) {
+    return false;
+  }
+
+  const { data: room } = await supabase
+    .from("rooms")
+    .select("id, home_id")
+    .eq("id", plan.room_id)
+    .maybeSingle<{ id: string; home_id: string }>();
+
+  if (!room) {
+    return false;
+  }
+
+  const { data: home } = await supabase
+    .from("homes")
+    .select("id")
+    .eq("id", room.home_id)
+    .eq("user_id", userId)
+    .maybeSingle<{ id: string }>();
+
+  return Boolean(home);
+}
+
+async function getNextVersion(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  field: "scheme_id" | "plan_id",
+  recordId: string,
+) {
+  const { data: latestVersion } = await supabase
+    .from("effect_images")
+    .select("version")
+    .eq(field, recordId)
+    .order("version", { ascending: false })
+    .limit(1);
+
+  return typeof latestVersion?.[0]?.version === "number"
+    ? latestVersion[0].version + 1
+    : 1;
+}
+
+async function createPendingEffectTask(
+  supabase: ReturnType<typeof createServiceRoleClient>,
+  payload: {
+    schemeId?: string;
+    planId?: string;
+    generationParams?: Record<string, unknown>;
+  },
+) {
+  const nextVersion = await getNextVersion(
+    supabase,
+    payload.planId ? "plan_id" : "scheme_id",
+    payload.planId ?? payload.schemeId ?? "",
+  );
+
+  const { data: effectImage, error } = await supabase
+    .from("effect_images")
+    .insert({
+      scheme_id: payload.schemeId ?? null,
+      plan_id: payload.planId ?? null,
+      image_url: "",
+      generation_status: "pending",
+      generation_params: payload.generationParams ?? {
+        started_at: new Date().toISOString(),
+      },
+      version: nextVersion,
+    })
+    .select("id, version")
+    .single<EffectImageRow>();
+
+  if (error || !effectImage) {
+    throw new Error(error?.message ?? "Failed to create effect image task.");
+  }
+
+  return effectImage;
+}
+
 export async function POST(request: Request) {
   try {
     const envCheck = checkGenerationEnv();
@@ -269,11 +360,12 @@ export async function POST(request: Request) {
     }
 
     const body = (await request.json()) as GenerateEffectImageBody;
+    const planId = body.plan_id?.trim();
     const schemeId = body.scheme_id?.trim();
 
-    if (!schemeId) {
+    if (!planId && !schemeId) {
       return NextResponse.json(
-        { success: false, error: "Missing scheme_id." },
+        { success: false, error: "Missing plan_id or scheme_id." },
         { status: 400 },
       );
     }
@@ -295,6 +387,43 @@ export async function POST(request: Request) {
       );
     }
 
+    if (planId) {
+      const hasAccess = await verifyOwnedPlan(supabase, planId, authUser.id);
+      if (!hasAccess) {
+        return NextResponse.json(
+          { success: false, error: "Plan not found or access denied." },
+          { status: 404 },
+        );
+      }
+
+      const effectImage = await createPendingEffectTask(supabase, {
+        planId,
+        generationParams: {
+          started_at: new Date().toISOString(),
+          pipeline: "route_d",
+          progress: {
+            stage: "classifying",
+            message: "正在仔细研究这件家具...",
+          },
+        },
+      });
+
+      try {
+        await incrementGeneration(authUser.id);
+      } catch (error) {
+        await supabase.from("effect_images").delete().eq("id", effectImage.id);
+        throw error;
+      }
+
+      schedulePipeline(() => runRouteDPipeline(effectImage.id, planId));
+
+      return NextResponse.json({
+        success: true,
+        effectImageId: effectImage.id,
+        version: effectImage.version,
+      });
+    }
+
     const { data: ownedSchemes, error: ownedSchemeError } = await supabase
       .from("schemes")
       .select("id")
@@ -309,35 +438,12 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: latestVersion } = await supabase
-      .from("effect_images")
-      .select("version")
-      .eq("scheme_id", schemeId)
-      .order("version", { ascending: false })
-      .limit(1);
-
-    const nextVersion =
-      typeof latestVersion?.[0]?.version === "number"
-        ? latestVersion[0].version + 1
-        : 1;
-
-    const { data: effectImage, error: insertError } = await supabase
-      .from("effect_images")
-      .insert({
-        scheme_id: schemeId,
-        image_url: "",
-        generation_status: "pending",
-        generation_params: {
-          started_at: new Date().toISOString(),
-        },
-        version: nextVersion,
-      })
-      .select("id, version")
-      .single<EffectImageRow>();
-
-    if (insertError || !effectImage) {
-      throw new Error(insertError?.message ?? "Failed to create effect image task.");
-    }
+    const effectImage = await createPendingEffectTask(supabase, {
+      schemeId,
+      generationParams: {
+        started_at: new Date().toISOString(),
+      },
+    });
 
     try {
       await incrementGeneration(authUser.id);
@@ -346,7 +452,7 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    schedulePipeline(() => runPipeline(effectImage.id, schemeId));
+    schedulePipeline(() => runLegacySchemePipeline(effectImage.id, schemeId!));
 
     return NextResponse.json({
       success: true,
