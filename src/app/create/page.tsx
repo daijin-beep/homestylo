@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CreatePageClient } from "@/components/create/CreatePageClient";
+import { CreatePageLoader } from "@/components/create/CreatePageLoader";
 
 export const metadata: Metadata = {
   title: "开始设计",
@@ -7,5 +7,5 @@ export const metadata: Metadata = {
 };
 
 export default function CreatePage() {
-  return <CreatePageClient />;
+  return <CreatePageLoader />;
 }
