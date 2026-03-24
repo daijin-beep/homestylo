@@ -43,15 +43,19 @@ function resolvePerspectiveScale(input: ScaleInput) {
 
   if (hasDepth) {
     const depthRatio = input.depthAtWall! / input.depthAtPlacement!;
+    const perspectiveScale = Math.max(0.5, clamp(depthRatio, 0.4, 1.2));
 
     return {
-      perspectiveScale: clamp(depthRatio, 0.4, 1.2),
+      perspectiveScale,
       depthRatio,
     };
   }
 
   return {
-    perspectiveScale: 1.0 - (1.0 - clamp(input.placementY, 0, 1)) * 0.35,
+    perspectiveScale: Math.max(
+      0.5,
+      1.0 - (1.0 - clamp(input.placementY, 0, 1)) * 0.35,
+    ),
     depthRatio: null,
   };
 }
@@ -87,6 +91,37 @@ export function calculateScaleRouteE(input: ScaleInput): ScaleResult {
   const positionY = Math.round(
     clamp(groundY, 0, Math.max(input.roomPhotoHeightPx - pixelHeight, 0)),
   );
+  const minimumReasonableWidth = input.roomPhotoWidthPx * 0.05;
+
+  console.log("[scaleCalculatorRouteE] calculation", {
+    roomWidthMm: input.roomWidthMm,
+    roomPhotoWidthPx: input.roomPhotoWidthPx,
+    furnitureWidthMm: input.furnitureWidthMm,
+    furnitureHeightMm: input.furnitureHeightMm,
+    placementX,
+    placementY,
+    depthAtPlacement: input.depthAtPlacement ?? null,
+    depthAtWall: input.depthAtWall ?? null,
+    wallToPhotoRatio,
+    basePixelWidth,
+    perspectiveScale,
+    pixelWidth,
+    pixelHeight,
+    positionX,
+    positionY,
+  });
+
+  if (pixelWidth < minimumReasonableWidth) {
+    console.warn("[scaleCalculatorRouteE] suspiciously small furniture width", {
+      pixelWidth,
+      minimumReasonableWidth,
+      roomPhotoWidthPx: input.roomPhotoWidthPx,
+      roomWidthMm: input.roomWidthMm,
+      furnitureWidthMm: input.furnitureWidthMm,
+      placementY,
+      perspectiveScale,
+    });
+  }
 
   return {
     pixelWidth,

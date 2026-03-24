@@ -99,8 +99,8 @@ interface PreparedItem {
 }
 
 const CATEGORY_PLACEMENT: Record<string, { x: number; y: number }> = {
-  sofa: { x: 0.5, y: 0.82 },
-  coffee_table: { x: 0.5, y: 0.68 },
+  sofa: { x: 0.5, y: 0.65 },
+  coffee_table: { x: 0.5, y: 0.75 },
   tv_cabinet: { x: 0.5, y: 0.22 },
   rug: { x: 0.5, y: 0.72 },
   floor_lamp: { x: 0.82, y: 0.7 },
@@ -238,10 +238,18 @@ function resolveSmartPlacement(
     .sort((left, right) => right.estimated_width_mm - left.estimated_width_mm)[0];
 
   if (matchedFurniture) {
-    return {
+    const placement = {
       x: clamp(matchedFurniture.position.x, 0.05, 0.95),
       y: clamp(matchedFurniture.position.y, 0.05, 0.95),
     };
+    console.log("[routeEPipeline] smart placement", {
+      itemId: item.id,
+      category: item.category,
+      source: "existing_furniture",
+      placement,
+      matchedFurniture,
+    });
+    return placement;
   }
 
   const largestSpace = availableSpaces
@@ -249,13 +257,30 @@ function resolveSmartPlacement(
     .sort((left, right) => right.width_mm * right.depth_mm - left.width_mm * left.depth_mm)[0];
 
   if (largestSpace) {
-    return {
+    const placement = {
       x: clamp(largestSpace.position.x, 0.05, 0.95),
       y: clamp(largestSpace.position.y, 0.05, 0.95),
     };
+    console.log("[routeEPipeline] smart placement", {
+      itemId: item.id,
+      category: item.category,
+      source: "available_space",
+      placement,
+      largestSpace,
+    });
+    return placement;
   }
 
-  return resolveDefaultPlacement(item.category, index, total);
+  const placement = resolveDefaultPlacement(item.category, index, total);
+  console.log("[routeEPipeline] smart placement", {
+    itemId: item.id,
+    category: item.category,
+    source: "default",
+    placement,
+    index,
+    total,
+  });
+  return placement;
 }
 
 async function updateEffectProgress(
@@ -425,6 +450,14 @@ export async function runRouteEPipeline(effectImageId: string, planId: string) {
     const roomDescription = buildRoomDescription(room);
     const lightingDirection = resolveLightingDirection(room);
     const cameraView = resolveCameraView(room);
+    const existingFurniture = room.spatial_analysis?.existing_furniture ?? [];
+
+    console.log("[routeEPipeline] existing furniture before erase", {
+      roomId: room.id,
+      planId,
+      count: existingFurniture.length,
+      items: existingFurniture,
+    });
 
     await updateEffectProgress(effectImageId, {
       generationStatus: "classifying",
@@ -454,11 +487,17 @@ export async function runRouteEPipeline(effectImageId: string, planId: string) {
     }
 
     const erasedRegionMask = await generateFurnitureMask({
-      existingFurniture: room.spatial_analysis?.existing_furniture,
+      existingFurniture,
       imageWidth: roomPhotoWidthPx,
       imageHeight: roomPhotoHeightPx,
       roomWidthMm,
       roomDepthMm,
+    });
+    console.log("[routeEPipeline] generated erased region mask", {
+      roomId: room.id,
+      planId,
+      hasMask: Boolean(erasedRegionMask),
+      maskBytes: erasedRegionMask?.byteLength ?? 0,
     });
 
     await updateEffectProgress(effectImageId, {
@@ -474,12 +513,36 @@ export async function runRouteEPipeline(effectImageId: string, planId: string) {
 
     let cleanRoomUrl = roomImageUrl;
     if (erasedRegionMask) {
+      console.log("[routeEPipeline] invoking furniture eraser", {
+        roomId: room.id,
+        planId,
+        existingFurnitureCount: existingFurniture.length,
+      });
       try {
         const eraseResult = await eraseExistingFurniture(roomImageUrl, erasedRegionMask, planId);
         cleanRoomUrl = eraseResult.cleanRoomUrl;
+        console.log("[routeEPipeline] furniture eraser result", {
+          roomId: room.id,
+          planId,
+          cleanRoomUrl,
+          processingTimeMs: eraseResult.processingTimeMs,
+        });
       } catch {
         cleanRoomUrl = roomImageUrl;
+        console.warn("[routeEPipeline] furniture eraser failed, fallback to original room image", {
+          roomId: room.id,
+          planId,
+        });
       }
+    } else {
+      console.log(
+        "[routeEPipeline] furniture eraser skipped because no existing furniture mask was produced",
+        {
+          roomId: room.id,
+          planId,
+          existingFurnitureCount: existingFurniture.length,
+        },
+      );
     }
 
     let depthModel: string | null = null;
@@ -507,7 +570,7 @@ export async function runRouteEPipeline(effectImageId: string, planId: string) {
       preparedItems.map(async ({ item, imageUrl, dimensions }, index) => {
         const placement = resolveSmartPlacement(
           item,
-          room.spatial_analysis?.existing_furniture,
+          existingFurniture,
           room.spatial_analysis?.available_spaces,
           index,
           totalItems,

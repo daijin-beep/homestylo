@@ -31,6 +31,7 @@ Requirements:
 6. Identify any existing furniture already in the room
 7. Shooting direction and confidence score
 8. Also estimate the camera viewing angle for this photo
+9. IMPORTANT: You MUST list ALL visible furniture in the room, even partially visible ones. Include sofas, chairs, tables, cabinets, shelves, lamps, rugs, beds, side tables, stools and any other movable furniture. For each item provide category, estimated width and depth in mm, and position as x,y coordinates normalized to 0-1. Do NOT return an empty existing_furniture array if any furniture is visible.
 
 Output strict JSON only:
 {
