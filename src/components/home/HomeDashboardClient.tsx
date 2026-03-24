@@ -37,47 +37,23 @@ type HomeSummary = Home & {
   }>;
 };
 
-const copy = {
-  zh: {
-    title: "我的家",
-    subtitle: "从 Home 开始组织你的空间和软装清单。",
-    createHome: "创建 Home",
-    emptyTitle: "还没有 Home",
-    emptyDescription: "先创建一个 Home，再往里面添加房间和软装清单。",
-    name: "Home 名称",
-    address: "地址",
-    homeType: "Home 类型",
-    newBuild: "新房",
-    renovation: "翻新",
-    occupied: "已入住",
-    cancel: "取消",
-    save: "创建并进入",
-    open: "查看房间",
-    rooms: "房间",
-    createTitle: "创建新的 Home",
-    createDescription: "先创建 Home，后续就在里面添加 Room 和 Furnishing Plan。",
-    unnamedAddress: "未填写地址",
-    loadFailed: "加载 Home 列表失败",
-    createFailed: "创建 Home 失败",
-    creating: "创建中...",
-  },
-  en: {
-    title: "Homes",
-  },
-} as const;
-
 const HOME_TYPE_OPTIONS = [
-  { value: "new_build", label: copy.zh.newBuild },
-  { value: "renovation", label: copy.zh.renovation },
-  { value: "occupied", label: copy.zh.occupied },
+  { value: "new_build", label: "精装房" },
+  { value: "renovation", label: "翻新" },
+  { value: "occupied", label: "已入住" },
 ] as const;
 
 const HOME_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   HOME_TYPE_OPTIONS.map((option) => [option.value, option.label]),
 );
 
+const HOME_STATUS_LABELS: Record<string, string> = {
+  configuring: "筹备中",
+  mostly_done: "基本就绪",
+  maintaining: "持续优化",
+};
+
 export function HomeDashboardClient() {
-  const t = copy.zh;
   const router = useRouter();
   const { homes, setHomes, addHome, setLoading, isLoading } = useHomeStore((state) => ({
     homes: state.homes,
@@ -102,10 +78,14 @@ export function HomeDashboardClient() {
 
       try {
         const response = await fetch("/api/home", { cache: "no-store" });
-        const payload = (await response.json()) as { success: boolean; data?: HomeSummary[]; error?: string };
+        const payload = (await response.json()) as {
+          success: boolean;
+          data?: HomeSummary[];
+          error?: string;
+        };
 
         if (!response.ok || !payload.success) {
-          throw new Error(payload.error || t.loadFailed);
+          throw new Error(payload.error || "加载 Home 列表失败");
         }
 
         if (!ignore) {
@@ -124,7 +104,7 @@ export function HomeDashboardClient() {
         }
       } catch (error) {
         if (!ignore) {
-          toast.error(error instanceof Error ? error.message : t.loadFailed);
+          toast.error(error instanceof Error ? error.message : "加载 Home 列表失败");
         }
       } finally {
         if (!ignore) {
@@ -138,7 +118,7 @@ export function HomeDashboardClient() {
     return () => {
       ignore = true;
     };
-  }, [setHomes, setLoading, t.loadFailed]);
+  }, [setHomes, setLoading]);
 
   async function handleCreateHome() {
     if (!formState.name.trim()) {
@@ -162,7 +142,7 @@ export function HomeDashboardClient() {
       const payload = (await response.json()) as { success: boolean; data?: Home; error?: string };
 
       if (!response.ok || !payload.success || !payload.data) {
-        throw new Error(payload.error || t.createFailed);
+        throw new Error(payload.error || "创建 Home 失败");
       }
 
       addHome(payload.data);
@@ -170,7 +150,7 @@ export function HomeDashboardClient() {
       setFormState({ name: "", address: "", homeType: "new_build" });
       router.push(`/home/${payload.data.id}`);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t.createFailed);
+      toast.error(error instanceof Error ? error.message : "创建 Home 失败");
     } finally {
       setIsSubmitting(false);
     }
@@ -182,13 +162,15 @@ export function HomeDashboardClient() {
         <BackLinkButton href="/" />
         <Button className="h-11" onClick={() => setDialogOpen(true)}>
           <Plus className="h-4 w-4" />
-          {t.createHome}
+          创建 Home
         </Button>
       </div>
 
       <section className="space-y-2">
-        <h1 className="text-3xl font-serif text-foreground">{t.title}</h1>
-        <p className="text-sm text-muted-foreground md:text-base">{t.subtitle}</p>
+        <h1 className="text-3xl font-serif text-foreground">我的家</h1>
+        <p className="text-sm text-muted-foreground md:text-base">
+          从 Home 开始组织你的房间、照片分析和软装方案。
+        </p>
       </section>
 
       {isLoading ? (
@@ -207,7 +189,7 @@ export function HomeDashboardClient() {
                     <CardTitle className="text-xl font-serif">{home.name}</CardTitle>
                     <CardDescription className="flex items-center gap-2">
                       <MapPin className="h-4 w-4" />
-                      {home.address || t.unnamedAddress}
+                      {home.address || "还没有填写地址"}
                     </CardDescription>
                   </div>
                   <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
@@ -219,11 +201,11 @@ export function HomeDashboardClient() {
                 <div className="rounded-2xl border border-dashed border-border bg-muted/40 p-4 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Sofa className="h-4 w-4" />
-                    <span>{home.status}</span>
+                    <span>{HOME_STATUS_LABELS[home.status] || home.status}</span>
                   </div>
                 </div>
                 <Button asChild className="h-11 w-full">
-                  <Link href={`/home/${home.id}`}>{t.open}</Link>
+                  <Link href={`/home/${home.id}`}>进入 Home 详情</Link>
                 </Button>
               </CardContent>
             </Card>
@@ -232,17 +214,19 @@ export function HomeDashboardClient() {
       ) : (
         <Card className="border-border bg-card">
           <CardHeader>
-            <CardTitle className="text-xl font-serif">{t.emptyTitle}</CardTitle>
-            <CardDescription>{t.emptyDescription}</CardDescription>
+            <CardTitle className="text-xl font-serif">先创建第一个 Home</CardTitle>
+            <CardDescription>
+              创建后就可以继续添加 Room、上传照片、做 AI 空间分析和软装方案。
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="flex h-52 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border bg-muted/40 px-6 text-center text-muted-foreground">
               <HousePlus className="h-10 w-10" />
-              <p>创建第一个 Home 后，就可以开始添加 Room 和软装清单。</p>
+              <p>你的 Home 列表还是空的。先建一个家，后面的端到端流程就能开始跑通。</p>
             </div>
             <Button className="h-12 w-full sm:w-auto" onClick={() => setDialogOpen(true)}>
               <Plus className="h-4 w-4" />
-              {t.createHome}
+              创建 Home
             </Button>
           </CardContent>
         </Card>
@@ -251,12 +235,14 @@ export function HomeDashboardClient() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t.createTitle}</DialogTitle>
-            <DialogDescription>{t.createDescription}</DialogDescription>
+            <DialogTitle>创建新的 Home</DialogTitle>
+            <DialogDescription>
+              先创建 Home，接下来就在里面添加 Room 和软装方案。
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="home-name">{t.name}</Label>
+              <Label htmlFor="home-name">Home 名称</Label>
               <Input
                 id="home-name"
                 value={formState.name}
@@ -267,7 +253,7 @@ export function HomeDashboardClient() {
               />
             </div>
             <div className="space-y-2">
-              <Label>{t.homeType}</Label>
+              <Label>Home 类型</Label>
               <Select
                 value={formState.homeType}
                 onValueChange={(value) =>
@@ -275,7 +261,7 @@ export function HomeDashboardClient() {
                 }
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={t.homeType} />
+                  <SelectValue placeholder="选择 Home 类型" />
                 </SelectTrigger>
                 <SelectContent>
                   {HOME_TYPE_OPTIONS.map((option) => (
@@ -287,7 +273,7 @@ export function HomeDashboardClient() {
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="home-address">{t.address}</Label>
+              <Label htmlFor="home-address">地址</Label>
               <Input
                 id="home-address"
                 value={formState.address}
@@ -300,10 +286,10 @@ export function HomeDashboardClient() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              {t.cancel}
+              取消
             </Button>
             <Button onClick={handleCreateHome} disabled={isSubmitting}>
-              {isSubmitting ? t.creating : t.save}
+              {isSubmitting ? "创建中..." : "创建并进入"}
             </Button>
           </DialogFooter>
         </DialogContent>

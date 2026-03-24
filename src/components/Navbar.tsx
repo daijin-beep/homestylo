@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Sparkles } from "lucide-react";
+import { Home, Sparkles } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -21,7 +21,7 @@ function getUserBadge(user: SupabaseUser | null) {
   }
 
   const lastFour = user.phone.replace(/\D/g, "").slice(-4);
-  return lastFour ? lastFour : "用户";
+  return lastFour || "用户";
 }
 
 export function Navbar() {
@@ -45,11 +45,11 @@ export function Navbar() {
     return () => subscription.unsubscribe();
   }, [supabase]);
 
-  const handleSignOut = async () => {
+  async function handleSignOut() {
     await supabase.auth.signOut();
     router.push("/");
     router.refresh();
-  };
+  }
 
   if (pathname === "/generate/loading") {
     return null;
@@ -69,6 +69,13 @@ export function Navbar() {
         </Link>
 
         <div className="flex items-center gap-2">
+          <Link
+            href="/dashboard"
+            className="hidden items-center gap-2 px-3 text-sm font-medium text-foreground/80 transition-colors hover:text-[#8B5A37] md:inline-flex"
+          >
+            <Home className="h-4 w-4" />
+            我的家
+          </Link>
           <Link
             href="/pricing"
             className="hidden px-3 text-sm font-medium text-foreground/75 transition-colors hover:text-[#8B5A37] md:inline-flex"
@@ -107,9 +114,9 @@ export function Navbar() {
                   {getUserBadge(activeUser)}
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-36">
+              <DropdownMenuContent align="end" className="w-40">
                 <DropdownMenuItem asChild>
-                  <Link href="/dashboard">我的方案</Link>
+                  <Link href="/dashboard">我的家</Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem

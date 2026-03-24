@@ -118,7 +118,7 @@ export function ShareCard({ plan, items, effectImageUrl }: ShareCardProps) {
 
       context.font = "20px sans-serif";
       context.fillStyle = "#6b7280";
-      context.fillText("分享自软装清单页 · 可继续补充效果图与商品链接", 72, 814);
+      context.fillText("来自软装清单页 · 可继续补全效果图和商品链接", 72, 814);
 
       const dataUrl = canvas.toDataURL("image/png");
       const link = document.createElement("a");
@@ -137,7 +137,7 @@ export function ShareCard({ plan, items, effectImageUrl }: ShareCardProps) {
         <div className="space-y-2">
           <CardTitle className="text-xl font-serif">分享清单卡片</CardTitle>
           <CardDescription>
-            适合先把当前软装方案发给家人或朋友确认，后续再接入正式的公开分享链接。
+            适合先把当前软装方案发给家人或朋友确认，后面再接正式公开分享链接。
           </CardDescription>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -165,7 +165,9 @@ export function ShareCard({ plan, items, effectImageUrl }: ShareCardProps) {
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 bg-[radial-gradient(circle_at_top,_rgba(227,196,146,0.45),_transparent_55%),linear-gradient(135deg,#f7f2e8,#ece3d2)] px-6 text-center text-muted-foreground">
                 <ImageIcon className="h-10 w-10" />
-                <p className="max-w-xs text-sm">效果图入口将在后续阶段接入，这里先展示软装清单分享卡。</p>
+                <p className="max-w-xs text-sm">
+                  效果图入口将在后续阶段继续增强，这里先展示软装清单分享卡。
+                </p>
               </div>
             )}
           </div>

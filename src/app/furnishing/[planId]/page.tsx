@@ -8,6 +8,7 @@ import {
   CircleCheckBig,
   ImageIcon,
   Lock,
+  PackagePlus,
   ShoppingBag,
   Sparkles,
   Unlock,
@@ -19,6 +20,23 @@ import { PurchaseProgress } from "@/components/furnishing/PurchaseProgress";
 import { ShareCard } from "@/components/furnishing/ShareCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useFurnishingStore } from "@/lib/store/furnishingStore";
 import type { FurnishingPlan, FurnishingPlanItem } from "@/lib/types";
 
@@ -40,6 +58,7 @@ type PlanItemEntry = FurnishingPlanItem & {
 
 type RoomSummary = {
   id: string;
+  home_id: string;
   name: string;
   room_type: string;
   original_photo_url: string | null;
@@ -81,18 +100,71 @@ const copy = {
   },
 } as const;
 
+const CATEGORY_OPTIONS = [
+  { value: "sofa", label: "沙发" },
+  { value: "coffee_table", label: "茶几" },
+  { value: "tv_cabinet", label: "电视柜" },
+  { value: "bed", label: "床" },
+  { value: "dining_table", label: "餐桌" },
+  { value: "wardrobe", label: "衣柜" },
+  { value: "curtain", label: "窗帘" },
+  { value: "rug", label: "地毯" },
+  { value: "floor_lamp", label: "落地灯" },
+  { value: "painting", label: "装饰画" },
+  { value: "pillow", label: "抱枕" },
+  { value: "side_table", label: "边几" },
+  { value: "plant", label: "绿植" },
+] as const;
+
+const uiText = {
+  title: "软装清单",
+  budget: "总预算",
+  itemList: "商品清单",
+  addItem: "添加商品",
+  generate: "生成效果图",
+  share: "分享清单",
+  purchased: "已购买",
+  recommended: "推荐中",
+  abandoned: "已放弃",
+  lock: "锁定",
+  unlock: "解锁",
+  markPurchased: "标记已购买",
+  aiRecommended: "AI 推荐",
+  userPicked: "手动添加",
+  fitConfirmed: "尺寸已确认",
+  fitWarning: "尺寸有提醒",
+  fitBlocked: "尺寸不建议",
+  fitPending: "待校验",
+  roomPhoto: "房间照片",
+  noItems: "还没有商品",
+  noItemsDescription: "先手动添加第一件商品，后面就能开始跑预算、分享和效果图流程。",
+  draft: "进行中",
+} as const;
+
 export default function FurnishingPlanPage({
   params,
 }: {
   params: Promise<{ planId: string }>;
 }) {
-  const t = copy.zh;
+  const t = uiText;
   const router = useRouter();
   const [resolvedPlanId, setResolvedPlanId] = useState<string | null>(null);
   const [roomInfo, setRoomInfo] = useState<RoomSummary | null>(null);
   const [itemEntries, setItemEntries] = useState<PlanItemEntry[]>([]);
   const [isSavingBudget, setIsSavingBudget] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [isCreatingItem, setIsCreatingItem] = useState(false);
+  const [formState, setFormState] = useState({
+    name: "",
+    category: "sofa",
+    imageUrl: "",
+    sourceUrl: "",
+    widthMm: "",
+    depthMm: "",
+    heightMm: "",
+    price: "",
+  });
   const {
     currentPlan,
     setPlan,
@@ -311,8 +383,77 @@ export default function FurnishingPlanPage({
     }
   }
 
-  function handlePlaceholder(message: string) {
-    toast.info(message);
+  async function handleCreateItem() {
+    if (!resolvedPlanId) {
+      return;
+    }
+
+    if (
+      !formState.name.trim() ||
+      !formState.imageUrl.trim() ||
+      !formState.widthMm.trim() ||
+      !formState.depthMm.trim() ||
+      !formState.heightMm.trim() ||
+      !formState.price.trim()
+    ) {
+      toast.error("请完整填写名称、图片 URL、尺寸和价格");
+      return;
+    }
+
+    const widthMm = Number(formState.widthMm);
+    const depthMm = Number(formState.depthMm);
+    const heightMm = Number(formState.heightMm);
+    const price = Number(formState.price);
+
+    if ([widthMm, depthMm, heightMm, price].some((value) => !Number.isFinite(value) || value <= 0)) {
+      toast.error("尺寸和价格必须是大于 0 的数字");
+      return;
+    }
+
+    setIsCreatingItem(true);
+
+    try {
+      const response = await fetch("/api/furnishing/item", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          plan_id: resolvedPlanId,
+          category: formState.category,
+          source: "user_uploaded",
+          custom_name: formState.name.trim(),
+          custom_image_url: formState.imageUrl.trim(),
+          custom_source_url: formState.sourceUrl.trim() || null,
+          custom_width_mm: widthMm,
+          custom_depth_mm: depthMm,
+          custom_height_mm: heightMm,
+          price,
+        }),
+      });
+
+      const payload = (await response.json()) as { success: boolean; error?: string };
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "添加商品失败");
+      }
+
+      await reloadPlan();
+      setDialogOpen(false);
+      setFormState({
+        name: "",
+        category: "sofa",
+        imageUrl: "",
+        sourceUrl: "",
+        widthMm: "",
+        depthMm: "",
+        heightMm: "",
+        price: "",
+      });
+      toast.success("商品已添加到软装清单");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "添加商品失败");
+    } finally {
+      setIsCreatingItem(false);
+    }
   }
 
   function handleScrollToShare() {
@@ -328,6 +469,11 @@ export default function FurnishingPlanPage({
   function handleGeneratePreview() {
     if (!resolvedPlanId) {
       toast.info("方案仍在加载，请稍后重试");
+      return;
+    }
+
+    if (itemEntries.length === 0) {
+      toast.info("先添加至少一件商品，再生成效果图");
       return;
     }
 
@@ -353,8 +499,15 @@ export default function FurnishingPlanPage({
 
   return (
     <main className="mx-auto flex w-full max-w-7xl flex-1 flex-col gap-6 px-4 py-8 md:px-8">
-      <div className="flex items-center justify-between gap-3">
-        <BackLinkButton href="/dashboard" />
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <BackLinkButton href={roomInfo?.home_id ? `/home/${roomInfo.home_id}` : "/dashboard"} />
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>我的家</span>
+          <span>·</span>
+          <span>{roomInfo?.name || "Room"}</span>
+          <span>·</span>
+          <span>{currentPlan?.name || t.title}</span>
+        </div>
         <div className="rounded-full bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
           {currentPlan?.status || t.draft}
         </div>
@@ -383,7 +536,7 @@ export default function FurnishingPlanPage({
           <CardHeader className="space-y-2">
             <CardTitle className="text-2xl font-serif">{currentPlan?.name || t.title}</CardTitle>
             <CardDescription>
-              {roomInfo?.name || "未关联 Room"} · {roomInfo?.room_type || "待补充类型"}
+              {roomInfo?.name || "未关联 Room"} · {roomInfo?.room_type ? roomInfo.room_type.replaceAll("_", " ") : "待补充类型"}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -429,6 +582,10 @@ export default function FurnishingPlanPage({
             <h2 className="text-2xl font-serif text-foreground">{t.itemList}</h2>
             <p className="text-sm text-muted-foreground">管理锁定状态、购买状态和预算变化。</p>
           </div>
+          <Button onClick={() => setDialogOpen(true)}>
+            <PackagePlus className="h-4 w-4" />
+            {t.addItem}
+          </Button>
         </div>
 
         {isLoading ? (
@@ -566,9 +723,14 @@ export default function FurnishingPlanPage({
               <CardDescription>{t.noItemsDescription}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex h-48 items-center justify-center rounded-2xl border border-dashed border-border bg-muted/40 text-muted-foreground">
-                这里会显示这个 Plan 里的商品。
+              <div className="flex h-48 flex-col items-center justify-center gap-4 rounded-2xl border border-dashed border-border bg-muted/40 px-6 text-center text-muted-foreground">
+                <PackagePlus className="h-10 w-10" />
+                <p>先添加第一件商品，后面就能继续生成效果图、调整预算和分享清单。</p>
               </div>
+              <Button className="h-12 w-full sm:w-auto" onClick={() => setDialogOpen(true)}>
+                <PackagePlus className="h-4 w-4" />
+                {t.addItem}
+              </Button>
             </CardContent>
           </Card>
         )}
@@ -591,7 +753,7 @@ export default function FurnishingPlanPage({
         <Button
           variant="outline"
           className="h-12 flex-1"
-          onClick={() => handlePlaceholder("V4 商品导入入口将在后续阶段接入")}
+          onClick={() => setDialogOpen(true)}
         >
           {t.addItem}
         </Button>
@@ -607,6 +769,135 @@ export default function FurnishingPlanPage({
           {t.share}
         </Button>
       </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>快速手动添加商品</DialogTitle>
+            <DialogDescription>
+              先把名称、图片 URL、尺寸和价格补进去，确保这条端到端流程能跑通。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="item-name">商品名称</Label>
+              <Input
+                id="item-name"
+                value={formState.name}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, name: event.target.value }))
+                }
+                placeholder="例如：云朵三人位沙发"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>品类</Label>
+              <Select
+                value={formState.category}
+                onValueChange={(value) =>
+                  setFormState((current) => ({ ...current, category: value }))
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="选择品类" />
+                </SelectTrigger>
+                <SelectContent>
+                  {CATEGORY_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="item-price">价格</Label>
+              <Input
+                id="item-price"
+                inputMode="numeric"
+                value={formState.price}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, price: event.target.value }))
+                }
+                placeholder="例如：5999"
+              />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="item-image-url">商品图片 URL</Label>
+              <Input
+                id="item-image-url"
+                value={formState.imageUrl}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, imageUrl: event.target.value }))
+                }
+                placeholder="粘贴可直接访问的商品主图链接"
+              />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="item-source-url">来源链接（选填）</Label>
+              <Input
+                id="item-source-url"
+                value={formState.sourceUrl}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, sourceUrl: event.target.value }))
+                }
+                placeholder="例如：商品详情页链接"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="item-width">宽度 mm</Label>
+              <Input
+                id="item-width"
+                inputMode="numeric"
+                value={formState.widthMm}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, widthMm: event.target.value }))
+                }
+                placeholder="例如：2200"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="item-depth">深度 mm</Label>
+              <Input
+                id="item-depth"
+                inputMode="numeric"
+                value={formState.depthMm}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, depthMm: event.target.value }))
+                }
+                placeholder="例如：950"
+              />
+            </div>
+
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="item-height">高度 mm</Label>
+              <Input
+                id="item-height"
+                inputMode="numeric"
+                value={formState.heightMm}
+                onChange={(event) =>
+                  setFormState((current) => ({ ...current, heightMm: event.target.value }))
+                }
+                placeholder="例如：780"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDialogOpen(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void handleCreateItem()} disabled={isCreatingItem}>
+              {isCreatingItem ? "添加中..." : "添加到软装清单"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
@@ -696,22 +987,22 @@ function getFitMeta(status: FurnishingPlanItem["fit_status"]) {
   switch (status) {
     case "confirmed":
       return {
-        label: copy.zh.fitConfirmed,
+        label: uiText.fitConfirmed,
         icon: <CircleCheckBig className="h-4 w-4 text-emerald-600" />,
       };
     case "warning":
       return {
-        label: copy.zh.fitWarning,
+        label: uiText.fitWarning,
         icon: <CircleAlert className="h-4 w-4 text-amber-500" />,
       };
     case "blocked":
       return {
-        label: copy.zh.fitBlocked,
+        label: uiText.fitBlocked,
         icon: <CircleAlert className="h-4 w-4 text-destructive" />,
       };
     default:
       return {
-        label: copy.zh.fitPending,
+        label: uiText.fitPending,
         icon: <CircleAlert className="h-4 w-4 text-muted-foreground" />,
       };
   }
@@ -738,3 +1029,18 @@ const STATUS_LABELS: Record<string, string> = {
   purchased: copy.zh.purchased,
   abandoned: copy.zh.abandoned,
 };
+
+const DISPLAY_CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
+  CATEGORY_OPTIONS.map((option) => [option.value, option.label]),
+);
+
+const DISPLAY_STATUS_LABELS: Record<string, string> = {
+  recommended: uiText.recommended,
+  candidate: "候选",
+  confirmed: "已确认",
+  purchased: uiText.purchased,
+  abandoned: uiText.abandoned,
+};
+
+Object.assign(ROOM_CATEGORY_LABELS, DISPLAY_CATEGORY_LABELS);
+Object.assign(STATUS_LABELS, DISPLAY_STATUS_LABELS);

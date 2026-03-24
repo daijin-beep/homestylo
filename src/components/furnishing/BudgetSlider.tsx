@@ -103,7 +103,7 @@ export function BudgetSlider({
       ) : (
         <div className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-3 text-sm text-emerald-700">
           <Wallet className="h-4 w-4 shrink-0" />
-          <span>调整预算后，未锁定商品会自动重新分配价格区间。</span>
+          <span>拖动预算后，未锁定商品会自动重新分配价格区间。</span>
         </div>
       )}
     </div>

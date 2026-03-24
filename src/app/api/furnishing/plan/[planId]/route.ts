@@ -11,7 +11,7 @@ async function getOwnedPlan(
     ? supabase
         .from("furnishing_plans")
         .select(
-          "*, rooms(id, name, room_type, original_photo_url, current_photo_url), furnishing_plan_items(*, products(name, image_url, price_min, price_max, width_mm, depth_mm, height_mm, brand, source_url))",
+          "*, rooms(id, home_id, name, room_type, original_photo_url, current_photo_url), furnishing_plan_items(*, products(name, image_url, price_min, price_max, width_mm, depth_mm, height_mm, brand, source_url))",
         )
         .eq("id", planId)
         .single()
