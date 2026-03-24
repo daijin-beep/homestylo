@@ -1,8 +1,9 @@
 import { describe, expect, test } from "vitest";
 import { calculateScale } from "../scaleCalculator";
+import { calculateScaleRouteE } from "../scaleCalculatorRouteE";
 
 describe("calculateScale", () => {
-  test("3000mm 墙面中 2600mm 沙发约占 1040px", () => {
+  test("legacy calculator keeps the original sofa width projection", () => {
     const result = calculateScale({
       roomWidthMm: 3000,
       roomPhotoWidthPx: 1200,
@@ -19,7 +20,7 @@ describe("calculateScale", () => {
     expect(result.positionX).toBe(80);
   });
 
-  test("更远处的家具应该更小", () => {
+  test("legacy calculator makes farther objects smaller", () => {
     const near = calculateScale({
       roomWidthMm: 3600,
       roomPhotoWidthPx: 1400,
@@ -47,7 +48,7 @@ describe("calculateScale", () => {
     expect(far.perspectiveScale).toBeLessThan(near.perspectiveScale);
   });
 
-  test("家具比墙更宽时返回 warning", () => {
+  test("legacy calculator returns a warning when furniture is wider than the wall", () => {
     const result = calculateScale({
       roomWidthMm: 2600,
       roomPhotoWidthPx: 1000,
@@ -63,7 +64,7 @@ describe("calculateScale", () => {
     expect(result.debug.furnitureToWallRatio).toBeGreaterThan(1);
   });
 
-  test("居中、靠左、靠右放置的 X 坐标应不同", () => {
+  test("legacy calculator changes X position when placing left, center and right", () => {
     const left = calculateScale({
       roomWidthMm: 3200,
       roomPhotoWidthPx: 1200,
@@ -99,5 +100,55 @@ describe("calculateScale", () => {
 
     expect(left.positionX).toBeLessThan(center.positionX);
     expect(center.positionX).toBeLessThan(right.positionX);
+  });
+});
+
+describe("calculateScaleRouteE", () => {
+  test("uses depth ratio when depth values are available", () => {
+    const near = calculateScaleRouteE({
+      roomWidthMm: 3600,
+      roomPhotoWidthPx: 1440,
+      roomPhotoHeightPx: 1024,
+      furnitureWidthMm: 2000,
+      furnitureHeightMm: 900,
+      placementX: 0.5,
+      placementY: 0.86,
+      depthAtPlacement: 0.45,
+      depthAtWall: 0.52,
+    });
+
+    const far = calculateScaleRouteE({
+      roomWidthMm: 3600,
+      roomPhotoWidthPx: 1440,
+      roomPhotoHeightPx: 1024,
+      furnitureWidthMm: 2000,
+      furnitureHeightMm: 900,
+      placementX: 0.5,
+      placementY: 0.24,
+      depthAtPlacement: 0.88,
+      depthAtWall: 0.52,
+    });
+
+    expect(near.debug.depthRatio).toBeCloseTo(0.52 / 0.45, 4);
+    expect(far.debug.depthRatio).toBeCloseTo(0.52 / 0.88, 4);
+    expect(far.pixelWidth).toBeLessThan(near.pixelWidth);
+    expect(far.perspectiveScale).toBeLessThan(near.perspectiveScale);
+  });
+
+  test("falls back to the legacy placement formula when depth data is missing", () => {
+    const result = calculateScaleRouteE({
+      roomWidthMm: 3200,
+      roomPhotoWidthPx: 1280,
+      roomPhotoHeightPx: 960,
+      furnitureWidthMm: 1600,
+      furnitureHeightMm: 820,
+      placementX: 0.35,
+      placementY: 0.2,
+    });
+
+    expect(result.debug.depthRatio).toBeNull();
+    expect(result.perspectiveScale).toBeCloseTo(1 - (1 - 0.2) * 0.35, 4);
+    expect(result.positionY).toBeGreaterThanOrEqual(0);
+    expect(result.positionY).toBeLessThan(960);
   });
 });
