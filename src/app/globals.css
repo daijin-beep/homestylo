@@ -23,6 +23,18 @@
   --input: #d8cab9;
   --ring: #8b5a37;
   --radius: 1rem;
+  --font-noto-sans-sc:
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    "Noto Sans SC",
+    sans-serif;
+  --font-noto-serif-sc:
+    "Source Han Serif SC",
+    "Songti SC",
+    "STSong",
+    "Noto Serif SC",
+    serif;
 }
 
 @theme inline {
