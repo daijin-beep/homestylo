@@ -123,3 +123,18 @@ export function buildNegativePrompt(): string {
   return "distorted proportions, unrealistic scale, cartoon, anime, sketch, blurry, low quality, text, watermark, signature, people, oversaturated colors, floating furniture, impossible geometry";
 }
 
+export function buildInpaintPrompt(
+  roomDescription: string,
+  lightingDirection: string,
+): string {
+  return [
+    roomDescription,
+    lightingDirection,
+    "realistic shadows and reflections on furniture edges",
+    "photorealistic interior photography",
+    "soft ambient lighting",
+    "8k",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
