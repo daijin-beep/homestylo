@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,10 @@ export function LoginPageClient() {
   const [countdown, setCountdown] = useState(0);
   const [isSendingCode, setIsSendingCode] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDevLoginOpen, setIsDevLoginOpen] = useState(false);
+  const [devEmail, setDevEmail] = useState("");
+  const [devPassword, setDevPassword] = useState("");
+  const [isDevSubmitting, setIsDevSubmitting] = useState(false);
   const [redirectPath] = useState(() => {
     if (typeof window === "undefined") {
       return "/dashboard";
@@ -112,6 +116,36 @@ export function LoginPageClient() {
 
     toast.success("\u767b\u5f55\u6210\u529f\uff0c\u6b63\u5728\u8df3\u8f6c\u3002");
     router.replace(redirectPath);
+    router.refresh();
+  };
+
+  const handleDevLogin = async () => {
+    const email = devEmail.trim();
+
+    if (!email) {
+      toast.error("请输入开发者邮箱。");
+      return;
+    }
+
+    if (!devPassword) {
+      toast.error("请输入开发者密码。");
+      return;
+    }
+
+    setIsDevSubmitting(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password: devPassword,
+    });
+    setIsDevSubmitting(false);
+
+    if (error) {
+      toast.error(error.message || "邮箱登录失败，请稍后重试。");
+      return;
+    }
+
+    toast.success("开发者登录成功，正在跳转。");
+    router.replace("/dashboard");
     router.refresh();
   };
 
@@ -193,6 +227,66 @@ export function LoginPageClient() {
               "\u767b\u5f55"
             )}
           </Button>
+
+          <div className="space-y-3 border-t border-border pt-4">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-left text-sm font-medium text-foreground"
+              onClick={() => setIsDevLoginOpen((current) => !current)}
+            >
+              <span>开发者登录</span>
+              {isDevLoginOpen ? (
+                <ChevronUp className="h-4 w-4 text-muted-foreground" />
+              ) : (
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              )}
+            </button>
+
+            {isDevLoginOpen ? (
+              <div className="space-y-4 rounded-xl border border-dashed border-border bg-muted/30 p-4">
+                <div className="space-y-2">
+                  <Label htmlFor="dev-email">邮箱</Label>
+                  <Input
+                    id="dev-email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="developer@example.com"
+                    value={devEmail}
+                    onChange={(event) => setDevEmail(event.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="dev-password">密码</Label>
+                  <Input
+                    id="dev-password"
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="请输入密码"
+                    value={devPassword}
+                    onChange={(event) => setDevPassword(event.target.value)}
+                  />
+                </div>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-11 w-full"
+                  onClick={handleDevLogin}
+                  disabled={isDevSubmitting}
+                >
+                  {isDevSubmitting ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      邮箱登录中...
+                    </>
+                  ) : (
+                    "邮箱登录"
+                  )}
+                </Button>
+              </div>
+            ) : null}
+          </div>
         </CardContent>
       </Card>
     </main>
