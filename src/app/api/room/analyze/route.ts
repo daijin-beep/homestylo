@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { analyzeImage } from "@/lib/api/claude";
 import type { FurnitureConstraints, SpaceStructure } from "@/lib/types";
+import { extractJson } from "@/lib/utils/jsonExtractor";
 
 interface AnalyzeRequestBody {
   scheme_id?: string;
@@ -25,29 +26,28 @@ interface FloorPlanParsedResult {
 }
 
 const ROOM_ANALYSIS_PROMPT = `
-你是一个专业的室内空间分析师。分析这张室内照片，输出JSON格式的空间结构数据。
+You are a professional interior space analyst. Analyze this room photo and return JSON describing the visible walls.
+Requirements:
+1. Identify each visible wall type: solid_wall / window / door / opening
+2. Estimate wall width in millimetres
+3. Infer the shooting direction
+4. Provide a confidence score from 0 to 1
 
-要求：
-1. 识别每面可见墙面的类型：solid_wall / window / door / opening
-2. 估算每面墙宽度（毫米）
-3. 判断拍摄方向
-4. 给出置信度(0-1)
-
-严格输出JSON：
+Return strict JSON:
 {
   "walls": [
-    {"id": "wall_1", "type": "solid_wall", "estimated_width_mm": 3600, "label": "沙发背景墙"}
+    {"id": "wall_1", "type": "solid_wall", "estimated_width_mm": 3600, "label": "main wall"}
   ],
-  "shooting_direction": "从入户方向朝客厅拍摄",
+  "shooting_direction": "from entrance towards the living room",
   "confidence": 0.75
 }
 `.trim();
 
 const FLOOR_PLAN_PROMPT = `
-你是户型图解读专家。提取标注的尺寸数据。
-输出JSON：
+You are a floor plan expert. Extract labelled room dimensions from this floor plan.
+Return strict JSON:
 {
-  "rooms": [{"name": "客厅", "width_mm": 6000, "depth_mm": 4500}],
+  "rooms": [{"name": "living room", "width_mm": 6000, "depth_mm": 4500}],
   "total_area_sqm": 120
 }
 `.trim();
@@ -57,7 +57,7 @@ function createServiceRoleClient() {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("缺少 Supabase service role 环境变量。");
+    throw new Error("Missing Supabase service role environment variables.");
   }
 
   return createClient(supabaseUrl, serviceRoleKey, {
@@ -66,22 +66,6 @@ function createServiceRoleClient() {
       autoRefreshToken: false,
     },
   });
-}
-
-function extractJson(text: string) {
-  const fencedMatch = text.match(/```json\s*([\s\S]*?)\s*```/i);
-  const candidate = (fencedMatch?.[1] ?? text).trim();
-  const firstBrace = candidate.indexOf("{");
-  const lastBrace = candidate.lastIndexOf("}");
-
-  if (firstBrace < 0 || lastBrace < 0 || lastBrace <= firstBrace) {
-    throw new Error("模型未返回合法 JSON。");
-  }
-
-  return JSON.parse(candidate.slice(firstBrace, lastBrace + 1)) as Record<
-    string,
-    unknown
-  >;
 }
 
 function ensureNumber(value: unknown, fallback: number | null = null) {
@@ -115,7 +99,6 @@ function normalizeStructure(payload: Record<string, unknown>): SpaceStructure {
       const wallType: SpaceStructure["walls"][number]["type"] = isWallType(source.type)
         ? source.type
         : "solid_wall";
-
       const label = typeof source.label === "string" ? source.label : undefined;
 
       return {
@@ -132,7 +115,7 @@ function normalizeStructure(payload: Record<string, unknown>): SpaceStructure {
     shooting_direction:
       typeof payload.shooting_direction === "string"
         ? payload.shooting_direction
-        : "室内视角",
+        : "indoor view",
     confidence: ensureNumber(payload.confidence, 0.6) ?? 0.6,
   };
 }
@@ -181,7 +164,7 @@ export async function POST(request: Request) {
 
     if (!schemeId) {
       return NextResponse.json(
-        { success: false, error: "缺少 scheme_id。" },
+        { success: false, error: "scheme_id is required." },
         { status: 400 },
       );
     }
@@ -195,7 +178,7 @@ export async function POST(request: Request) {
 
     if (roomAnalysisError || !roomAnalysis) {
       return NextResponse.json(
-        { success: false, error: "未找到空间分析记录。" },
+        { success: false, error: "Room analysis record not found." },
         { status: 404 },
       );
     }
@@ -205,13 +188,13 @@ export async function POST(request: Request) {
       .createSignedUrl(roomAnalysis.photo_url, 3600);
 
     if (roomPhotoSignedError || !roomPhotoSignedData?.signedUrl) {
-      throw new Error("房间照片签名 URL 生成失败。");
+      throw new Error("Failed to create signed URL for room photo.");
     }
 
     const roomText = await analyzeImage(
       roomPhotoSignedData.signedUrl,
       ROOM_ANALYSIS_PROMPT,
-      "请直接输出 JSON，不要添加额外解释。",
+      "Return strict JSON only.",
     );
     const structure = normalizeStructure(extractJson(roomText));
 
@@ -225,10 +208,9 @@ export async function POST(request: Request) {
         const floorPlanText = await analyzeImage(
           floorPlanSignedData.signedUrl,
           FLOOR_PLAN_PROMPT,
-          "请只返回 JSON。",
+          "Return strict JSON only.",
         );
-        const parsedFloorPlan = extractJson(floorPlanText) as FloorPlanParsedResult;
-        floorPlanResult = parsedFloorPlan;
+        floorPlanResult = extractJson<FloorPlanParsedResult>(floorPlanText);
       }
     }
 
@@ -263,7 +245,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "空间分析失败，请稍后重试。";
+      error instanceof Error ? error.message : "Room analysis failed. Please try again later.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
