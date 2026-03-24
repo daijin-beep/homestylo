@@ -162,7 +162,10 @@ export function CreatePageClient() {
   const router = useRouter();
   const [supabase] = useState(() => getSupabaseBrowserClient());
   const { user } = useAuth();
-  const { setScheme, setRoomAnalysis, setStep, setLoading } = useSchemeStore();
+  const setScheme = useSchemeStore((state) => state.setScheme);
+  const setRoomAnalysis = useSchemeStore((state) => state.setRoomAnalysis);
+  const setStep = useSchemeStore((state) => state.setStep);
+  const setLoading = useSchemeStore((state) => state.setLoading);
   const [state, setState] = useState<CreatePageState>(INITIAL_STATE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingSubmission, setPendingSubmission] = useState<PendingSubmission | null>(

@@ -83,15 +83,15 @@ export function Navbar() {
             套餐价格
           </Link>
           <Link
-            href="/create"
+            href="/dashboard"
             className="hidden h-9 items-center rounded-lg bg-[#8B5A37] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#754a2f] sm:inline-flex"
           >
-            开始设计
+            开始配置
           </Link>
           <Link
-            href="/create"
+            href="/dashboard"
             className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-[#8B5A37] text-white sm:hidden"
-            aria-label="开始设计"
+            aria-label="开始配置"
           >
             <Sparkles className="h-4 w-4" />
           </Link>

@@ -166,21 +166,12 @@ export default function FurnishingPlanPageClient({
     heightMm: "",
     price: "",
   });
-  const {
-    currentPlan,
-    setPlan,
-    setItems,
-    setLoading,
-    isLoading,
-    updateBudget,
-  } = useFurnishingStore((state) => ({
-    currentPlan: state.currentPlan,
-    setPlan: state.setPlan,
-    setItems: state.setItems,
-    setLoading: state.setLoading,
-    isLoading: state.isLoading,
-    updateBudget: state.updateBudget,
-  }));
+  const currentPlan = useFurnishingStore((state) => state.currentPlan);
+  const setPlan = useFurnishingStore((state) => state.setPlan);
+  const setItems = useFurnishingStore((state) => state.setItems);
+  const setLoading = useFurnishingStore((state) => state.setLoading);
+  const isLoading = useFurnishingStore((state) => state.isLoading);
+  const updateBudget = useFurnishingStore((state) => state.updateBudget);
 
   const resolvedPlanId = planId;
 

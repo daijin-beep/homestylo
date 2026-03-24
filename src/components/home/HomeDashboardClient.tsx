@@ -55,13 +55,11 @@ const HOME_STATUS_LABELS: Record<string, string> = {
 
 export function HomeDashboardClient() {
   const router = useRouter();
-  const { homes, setHomes, addHome, setLoading, isLoading } = useHomeStore((state) => ({
-    homes: state.homes,
-    setHomes: state.setHomes,
-    addHome: state.addHome,
-    setLoading: state.setLoading,
-    isLoading: state.isLoading,
-  }));
+  const homes = useHomeStore((state) => state.homes);
+  const setHomes = useHomeStore((state) => state.setHomes);
+  const addHome = useHomeStore((state) => state.addHome);
+  const setLoading = useHomeStore((state) => state.setLoading);
+  const isLoading = useHomeStore((state) => state.isLoading);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formState, setFormState] = useState({
     name: "",

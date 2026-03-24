@@ -88,21 +88,12 @@ const PLAN_STATUS_LABELS: Record<string, string> = {
 
 export function HomeRoomsClient({ homeId }: { homeId: string }) {
   const router = useRouter();
-  const {
-    currentHome,
-    setHome,
-    setRooms,
-    addRoom,
-    setLoading,
-    isLoading,
-  } = useHomeStore((state) => ({
-    currentHome: state.currentHome,
-    setHome: state.setHome,
-    setRooms: state.setRooms,
-    addRoom: state.addRoom,
-    setLoading: state.setLoading,
-    isLoading: state.isLoading,
-  }));
+  const currentHome = useHomeStore((state) => state.currentHome);
+  const setHome = useHomeStore((state) => state.setHome);
+  const setRooms = useHomeStore((state) => state.setRooms);
+  const addRoom = useHomeStore((state) => state.addRoom);
+  const setLoading = useHomeStore((state) => state.setLoading);
+  const isLoading = useHomeStore((state) => state.isLoading);
   const [roomEntries, setRoomEntries] = useState<RoomEntry[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedRoomId, setExpandedRoomId] = useState<string | null>(null);
