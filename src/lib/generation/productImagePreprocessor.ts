@@ -64,12 +64,6 @@ Respond in JSON: {
 
 const BACKGROUND_REMOVAL_MODELS: ModelConfig[] = [
   {
-    model: "851-labs/background-remover",
-    buildInput: (imageUrl) => ({
-      image: imageUrl,
-    }),
-  },
-  {
     model: "bria/remove-background",
     buildInput: (imageUrl) => ({
       image: imageUrl,
@@ -347,7 +341,7 @@ async function runExtractionModel(
 ) {
   const errors: string[] = [];
 
-  for (const modelConfig of models) {
+  for (const [index, modelConfig] of models.entries()) {
     try {
       const output = await runPredictionWithRetry(
         modelConfig.model,
@@ -367,6 +361,10 @@ async function runExtractionModel(
         error: message,
       });
       errors.push(`${modelConfig.model}: ${message}`);
+
+      if (index < models.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
     }
   }
 

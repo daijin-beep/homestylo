@@ -25,6 +25,18 @@ interface RunPredictionWithRetryOptions {
   retryDelayMs?: number;
 }
 
+class ReplicateHttpError extends Error {
+  status: number;
+  retryAfterSeconds?: number;
+
+  constructor(message: string, status: number, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "ReplicateHttpError";
+    this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -56,6 +68,51 @@ function parseModelIdentifier(model: string) {
   return { owner, name };
 }
 
+async function readReplicateErrorResponse(response: Response) {
+  const retryAfterHeader = response.headers.get("retry-after");
+  const headerRetryAfter = retryAfterHeader ? Number(retryAfterHeader) : null;
+
+  try {
+    const payload = (await response.json()) as Record<string, unknown>;
+    const retryAfterValue =
+      typeof payload.retry_after === "number"
+        ? payload.retry_after
+        : typeof payload.retry_after === "string"
+          ? Number(payload.retry_after)
+          : headerRetryAfter;
+    const retryAfterSeconds =
+      typeof retryAfterValue === "number" && Number.isFinite(retryAfterValue) && retryAfterValue > 0
+        ? retryAfterValue
+        : undefined;
+    const message =
+      typeof payload.detail === "string"
+        ? payload.detail
+        : typeof payload.error === "string"
+          ? payload.error
+          : typeof payload.title === "string"
+            ? payload.title
+            : typeof payload.message === "string"
+              ? payload.message
+              : JSON.stringify(payload);
+
+    return {
+      message,
+      retryAfterSeconds,
+    };
+  } catch {
+    const message = await response.text();
+    const retryAfterSeconds =
+      typeof headerRetryAfter === "number" && Number.isFinite(headerRetryAfter) && headerRetryAfter > 0
+        ? headerRetryAfter
+        : undefined;
+
+    return {
+      message,
+      retryAfterSeconds,
+    };
+  }
+}
+
 async function createOfficialPrediction(
   token: string,
   model: string,
@@ -73,9 +130,11 @@ async function createOfficialPrediction(
   );
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(
+    const { message, retryAfterSeconds } = await readReplicateErrorResponse(response);
+    throw new ReplicateHttpError(
       `Replicate create prediction failed (official format, status ${response.status}): ${message}`,
+      response.status,
+      retryAfterSeconds,
     );
   }
 
@@ -93,9 +152,11 @@ async function getLatestModelVersion(token: string, model: string) {
   );
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(
+    const { message, retryAfterSeconds } = await readReplicateErrorResponse(response);
+    throw new ReplicateHttpError(
       `Replicate version lookup failed (status ${response.status}): ${message}`,
+      response.status,
+      retryAfterSeconds,
     );
   }
 
@@ -133,9 +194,11 @@ async function createCommunityPrediction(
   });
 
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(
+    const { message, retryAfterSeconds } = await readReplicateErrorResponse(response);
+    throw new ReplicateHttpError(
       `Replicate create prediction failed (community format, status ${response.status}, version ${version}): ${message}`,
+      response.status,
+      retryAfterSeconds,
     );
   }
 
@@ -150,6 +213,10 @@ async function createPrediction(
   try {
     return await createOfficialPrediction(token, model, input);
   } catch (officialError) {
+    if (officialError instanceof ReplicateHttpError && officialError.status === 429) {
+      throw officialError;
+    }
+
     const officialMessage =
       officialError instanceof Error ? officialError.message : String(officialError);
 
@@ -185,8 +252,12 @@ export async function runPrediction(
     );
 
     if (!statusResponse.ok) {
-      const message = await statusResponse.text();
-      throw new Error(`Replicate poll failed: ${message}`);
+      const { message, retryAfterSeconds } = await readReplicateErrorResponse(statusResponse);
+      throw new ReplicateHttpError(
+        `Replicate poll failed: ${message}`,
+        statusResponse.status,
+        retryAfterSeconds,
+      );
     }
 
     const status =
@@ -238,11 +309,26 @@ export async function runPredictionWithRetry(
   const maxRetries = options?.maxRetries ?? 2;
   const retryDelayMs = options?.retryDelayMs ?? 3000;
   let attempts = 0;
+  let rateLimitRetries = 0;
 
   while (attempts <= maxRetries) {
     try {
       return await runPrediction(model, input, timeoutMs);
     } catch (error) {
+      if (error instanceof ReplicateHttpError && error.status === 429) {
+        if (rateLimitRetries >= 3) {
+          throw error;
+        }
+
+        rateLimitRetries += 1;
+        const waitMs = Math.max(
+          1000,
+          Math.round((error.retryAfterSeconds ?? retryDelayMs / 1000) * 1000),
+        );
+        await sleep(waitMs);
+        continue;
+      }
+
       if (attempts >= maxRetries || !isRetryableError(error)) {
         throw error;
       }
