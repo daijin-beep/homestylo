@@ -215,6 +215,20 @@ function buildShadowMask(
   return shadowMask;
 }
 
+function grayscaleToRgbBuffer(source: Uint8Array) {
+  const rgb = Buffer.alloc(source.length * 3);
+
+  for (let index = 0; index < source.length; index += 1) {
+    const value = source[index] ?? 0;
+    const offset = index * 3;
+    rgb[offset] = value;
+    rgb[offset + 1] = value;
+    rgb[offset + 2] = value;
+  }
+
+  return rgb;
+}
+
 export async function generateInverseMask(
   options: InverseMaskOptions,
   planId: string,
@@ -277,17 +291,26 @@ export async function generateInverseMask(
     }
   }
 
+  const rgbMask = grayscaleToRgbBuffer(feathered);
+
   const maskBuffer = Buffer.from(
-    await sharp(feathered, {
+    await sharp(rgbMask, {
       raw: {
         width: options.imageWidth,
         height: options.imageHeight,
-        channels: 1,
+        channels: 3,
       },
     })
       .png()
       .toBuffer(),
   );
+  const maskMeta = await sharp(maskBuffer).metadata();
+  console.log("[inverseMaskGenerator] mask metadata:", {
+    width: maskMeta.width,
+    height: maskMeta.height,
+    channels: maskMeta.channels,
+    format: maskMeta.format,
+  });
   const maskUrl = await uploadToR2(
     maskBuffer,
     `route-e/${planId}/inverse-mask-${Date.now()}.png`,

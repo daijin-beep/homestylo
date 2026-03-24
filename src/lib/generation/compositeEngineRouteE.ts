@@ -151,12 +151,22 @@ async function buildMaskAndFurnitureLayers(
     }
   }
 
+  const rgbMask = Buffer.alloc(rawMask.length * 3);
+
+  for (let index = 0; index < rawMask.length; index += 1) {
+    const value = rawMask[index] ?? 0;
+    const offset = index * 3;
+    rgbMask[offset] = value;
+    rgbMask[offset + 1] = value;
+    rgbMask[offset + 2] = value;
+  }
+
   const furnitureMaskBuffer = Buffer.from(
-    await sharp(rawMask, {
+    await sharp(rgbMask, {
       raw: {
         width,
         height,
-        channels: 1,
+        channels: 3,
       },
     })
       .png()
