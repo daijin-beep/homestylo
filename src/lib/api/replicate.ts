@@ -10,6 +10,15 @@ interface ReplicatePredictionResponse {
   error?: string;
 }
 
+interface ReplicateModelVersion {
+  id: string;
+  created_at?: string;
+}
+
+interface ReplicateVersionsResponse {
+  results?: ReplicateModelVersion[];
+}
+
 interface RunPredictionWithRetryOptions {
   timeout?: number;
   maxRetries?: number;
@@ -30,6 +39,133 @@ function getReplicateToken() {
   return token;
 }
 
+function getReplicateHeaders(token: string, includeJson = false) {
+  return {
+    Authorization: `Token ${token}`,
+    ...(includeJson ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+function parseModelIdentifier(model: string) {
+  const [owner, name, ...rest] = model.split("/");
+
+  if (!owner || !name || rest.length > 0) {
+    throw new Error(`Invalid Replicate model identifier: ${model}`);
+  }
+
+  return { owner, name };
+}
+
+async function createOfficialPrediction(
+  token: string,
+  model: string,
+  input: Record<string, unknown>,
+) {
+  const { owner, name } = parseModelIdentifier(model);
+  const response = await fetch(
+    `${REPLICATE_API_BASE}/models/${owner}/${name}/predictions`,
+    {
+      method: "POST",
+      headers: getReplicateHeaders(token, true),
+      body: JSON.stringify({ input }),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Replicate create prediction failed (official format, status ${response.status}): ${message}`,
+    );
+  }
+
+  return (await response.json()) as ReplicatePredictionResponse;
+}
+
+async function getLatestModelVersion(token: string, model: string) {
+  const { owner, name } = parseModelIdentifier(model);
+  const response = await fetch(
+    `${REPLICATE_API_BASE}/models/${owner}/${name}/versions`,
+    {
+      headers: getReplicateHeaders(token),
+      cache: "no-store",
+    },
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Replicate version lookup failed (status ${response.status}): ${message}`,
+    );
+  }
+
+  const payload = (await response.json()) as ReplicateVersionsResponse;
+  const versions = payload.results ?? [];
+
+  if (versions.length === 0) {
+    throw new Error(`Replicate version lookup returned no versions for model ${model}.`);
+  }
+
+  const latestVersion = [...versions].sort((left, right) => {
+    const leftTime = left.created_at ? new Date(left.created_at).getTime() : 0;
+    const rightTime = right.created_at ? new Date(right.created_at).getTime() : 0;
+    return rightTime - leftTime;
+  })[0];
+
+  if (!latestVersion?.id) {
+    throw new Error(`Replicate version lookup returned an invalid version for model ${model}.`);
+  }
+
+  return latestVersion.id;
+}
+
+async function createCommunityPrediction(
+  token: string,
+  model: string,
+  input: Record<string, unknown>,
+) {
+  const version = await getLatestModelVersion(token, model);
+  const response = await fetch(`${REPLICATE_API_BASE}/predictions`, {
+    method: "POST",
+    headers: getReplicateHeaders(token, true),
+    body: JSON.stringify({ version, input }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(
+      `Replicate create prediction failed (community format, status ${response.status}, version ${version}): ${message}`,
+    );
+  }
+
+  return (await response.json()) as ReplicatePredictionResponse;
+}
+
+async function createPrediction(
+  token: string,
+  model: string,
+  input: Record<string, unknown>,
+) {
+  try {
+    return await createOfficialPrediction(token, model, input);
+  } catch (officialError) {
+    const officialMessage =
+      officialError instanceof Error ? officialError.message : String(officialError);
+
+    try {
+      return await createCommunityPrediction(token, model, input);
+    } catch (communityError) {
+      const communityMessage =
+        communityError instanceof Error ? communityError.message : String(communityError);
+
+      throw new Error(
+        `Replicate create prediction failed: ${officialMessage} | ${communityMessage}`,
+      );
+    }
+  }
+}
+
 export async function runPrediction(
   model: string,
   input: Record<string, unknown>,
@@ -37,32 +173,13 @@ export async function runPrediction(
 ): Promise<unknown> {
   const token = getReplicateToken();
   const startedAt = Date.now();
-
-  const createResponse = await fetch(`${REPLICATE_API_BASE}/predictions`, {
-    method: "POST",
-    headers: {
-      Authorization: `Token ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ model, input }),
-    cache: "no-store",
-  });
-
-  if (!createResponse.ok) {
-    const message = await createResponse.text();
-    throw new Error(`Replicate create prediction failed: ${message}`);
-  }
-
-  const createdPrediction =
-    (await createResponse.json()) as ReplicatePredictionResponse;
+  const createdPrediction = await createPrediction(token, model, input);
 
   while (Date.now() - startedAt < timeoutMs) {
     const statusResponse = await fetch(
       `${REPLICATE_API_BASE}/predictions/${createdPrediction.id}`,
       {
-        headers: {
-          Authorization: `Token ${token}`,
-        },
+        headers: getReplicateHeaders(token),
         cache: "no-store",
       },
     );
