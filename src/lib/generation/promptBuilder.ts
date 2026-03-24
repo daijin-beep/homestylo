@@ -1,6 +1,6 @@
 import "server-only";
 
-import { FLUX_PROMPTS, PRODUCT_ROLE_CATEGORIES } from "@/lib/constants";
+import { FLUX_PROMPTS, PRODUCT_ROLE_CATEGORIES, STYLE_DEFINITIONS } from "@/lib/constants";
 import type { StyleType } from "@/lib/types";
 
 export interface PromptContext {
@@ -134,6 +134,44 @@ export function buildInpaintPrompt(
     "photorealistic interior photography",
     "soft ambient lighting",
     "8k",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
+
+export function buildSceneRegenerationPrompt(
+  roomDescription: string,
+  lightingDirection: string,
+  stylePreference?: string,
+  furnitureDescriptions?: string[],
+): string {
+  const normalizedStyle =
+    stylePreference && stylePreference.trim()
+      ? normalizeStyle(stylePreference.trim())
+      : null;
+  const stylePrompt = normalizedStyle ? FLUX_PROMPTS[normalizedStyle] : "";
+  const styleKeywords = normalizedStyle
+    ? STYLE_DEFINITIONS[normalizedStyle].fluxKeywords.join(", ")
+    : "";
+  const furnitureLine =
+    furnitureDescriptions && furnitureDescriptions.length > 0
+      ? `placed furniture: ${furnitureDescriptions.join("; ")}`
+      : "";
+
+  return [
+    roomDescription,
+    lightingDirection,
+    stylePrompt,
+    styleKeywords ? `style materials and mood: ${styleKeywords}` : "",
+    furnitureLine,
+    "continuous wall and flooring materials",
+    "natural shadows beneath furniture",
+    "soft ambient occlusion where furniture meets floor",
+    "consistent room lighting across all surfaces",
+    "clean architectural perspective",
+    "photorealistic interior photography",
+    "seamless furniture-to-environment integration",
+    "no people, no text, no watermark",
   ]
     .filter(Boolean)
     .join(", ");
