@@ -21,3 +21,24 @@ export function checkGenerationEnv() {
     missing,
   };
 }
+
+export type RenderPipelineMode = "route_d" | "route_e";
+
+export function resolveRenderPipeline(): RenderPipelineMode {
+  const raw = process.env.RENDER_PIPELINE?.trim().toLowerCase();
+
+  if (!raw || raw === "route_e") {
+    return "route_e";
+  }
+
+  if (raw === "route_d") {
+    return "route_d";
+  }
+
+  console.warn(`[generation] Invalid RENDER_PIPELINE value "${raw}", falling back to route_e.`);
+  return "route_e";
+}
+
+export function isIcLightEnabled() {
+  return process.env.ENABLE_IC_LIGHT?.trim().toLowerCase() === "true";
+}

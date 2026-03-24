@@ -1,10 +1,14 @@
 import { after, NextResponse } from "next/server";
 import { estimateDepth } from "@/lib/generation/depthEstimator";
-import { checkGenerationEnv } from "@/lib/generation/envCheck";
+import {
+  checkGenerationEnv,
+  resolveRenderPipeline,
+} from "@/lib/generation/envCheck";
 import { renderWithFlux } from "@/lib/generation/fluxRenderer";
 import { detectHotspots } from "@/lib/generation/hotspotDetector";
 import { buildFluxPrompt } from "@/lib/generation/promptBuilder";
 import { runRouteDPipeline } from "@/lib/generation/routeDPipeline";
+import { runRouteEPipeline } from "@/lib/generation/routeEPipeline";
 import { canGenerate, incrementGeneration } from "@/lib/plan/checkUsage";
 import { requireCurrentAppUser } from "@/lib/plan/userProfile";
 import { createServiceRoleClient } from "@/lib/supabase/admin";
@@ -388,6 +392,7 @@ export async function POST(request: Request) {
     }
 
     if (planId) {
+      const selectedPipeline = resolveRenderPipeline();
       const hasAccess = await verifyOwnedPlan(supabase, planId, authUser.id);
       if (!hasAccess) {
         return NextResponse.json(
@@ -400,7 +405,7 @@ export async function POST(request: Request) {
         planId,
         generationParams: {
           started_at: new Date().toISOString(),
-          pipeline: "route_d",
+          pipeline: selectedPipeline,
           progress: {
             stage: "classifying",
             message: "正在仔细研究这件家具...",
@@ -415,7 +420,11 @@ export async function POST(request: Request) {
         throw error;
       }
 
-      schedulePipeline(() => runRouteDPipeline(effectImage.id, planId));
+      schedulePipeline(() =>
+        selectedPipeline === "route_e"
+          ? runRouteEPipeline(effectImage.id, planId)
+          : runRouteDPipeline(effectImage.id, planId),
+      );
 
       return NextResponse.json({
         success: true,

@@ -4,6 +4,7 @@ import { getOwnedRoomRecord } from "@/lib/room/ownership";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AvailableSpace,
+  CameraView,
   ExistingFurniture,
   SpatialAnalysis,
   WallInfo,
@@ -29,6 +30,7 @@ Requirements:
 5. Identify available spaces where furniture could be placed, with approximate dimensions
 6. Identify any existing furniture already in the room
 7. Shooting direction and confidence score
+8. Also estimate the camera viewing angle for this photo
 
 Output strict JSON only:
 {
@@ -44,6 +46,11 @@ Output strict JSON only:
   "existing_furniture": [
     {"id": "existing_1", "category": "tv_cabinet", "estimated_width_mm": 1200, "estimated_depth_mm": 400, "position": {"x": 0.5, "y": 0.4}}
   ],
+  "camera_view": {
+    "horizontal_angle": 30,
+    "vertical_angle": 15,
+    "direction": "left"
+  },
   "shooting_direction": "from entrance looking into living room",
   "confidence": 0.75
 }`.trim();
@@ -60,6 +67,7 @@ const DEFAULT_SPATIAL_ANALYSIS: SpatialAnalysis = {
   floor_material: null,
   wall_color: null,
   lighting_direction: null,
+  camera_view: null,
   available_spaces: [],
   existing_furniture: [],
   confidence: 0.3,
@@ -97,6 +105,24 @@ function normalizePosition(value: unknown) {
   return {
     x: Math.min(Math.max(ensureNumber(source.x, 0.5), 0), 1),
     y: Math.min(Math.max(ensureNumber(source.y, 0.5), 0), 1),
+  };
+}
+
+function normalizeCameraView(value: unknown): CameraView | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const direction =
+    source.direction === "left" || source.direction === "right" || source.direction === "center"
+      ? source.direction
+      : "center";
+
+  return {
+    horizontal_angle: Math.round(Math.min(Math.max(ensureNumber(source.horizontal_angle, 0), 0), 90)),
+    vertical_angle: Math.round(Math.min(Math.max(ensureNumber(source.vertical_angle, 0), 0), 45)),
+    direction,
   };
 }
 
@@ -169,6 +195,7 @@ function normalizeSpatialAnalysis(payload: Record<string, unknown>): SpatialAnal
     floor_material: ensureNullableString(payload.floor_material),
     wall_color: ensureNullableString(payload.wall_color),
     lighting_direction: ensureNullableString(payload.lighting_direction),
+    camera_view: normalizeCameraView(payload.camera_view),
     available_spaces: normalizeAvailableSpaces(payload),
     existing_furniture: normalizeExistingFurniture(payload),
     confidence: Math.min(Math.max(ensureNumber(payload.confidence, 0.6), 0), 1),

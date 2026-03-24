@@ -7,13 +7,35 @@ export interface InverseMaskOptions {
   furnitureMaskBuffer: Buffer;
   imageWidth: number;
   imageHeight: number;
+  edgeExpansionPx?: number;
+  shadowWidthPx?: number;
+  shadowSidePx?: number;
+  erasedRegionMask?: Buffer | null;
   featherPx?: number;
-  protectShadow?: boolean;
 }
 
 export interface InverseMaskResult {
   maskBuffer: Buffer;
   maskUrl: string;
+}
+
+interface BoundingBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function mergeMasks(target: Uint8Array, source: Uint8Array) {
+  for (let index = 0; index < target.length; index += 1) {
+    if ((source[index] ?? 0) > (target[index] ?? 0)) {
+      target[index] = source[index] ?? 0;
+    }
+  }
 }
 
 function erodeMask(
@@ -60,7 +82,7 @@ function erodeMask(
   return eroded;
 }
 
-async function loadMaskBuffer(buffer: Buffer, width: number, height: number) {
+async function loadBinaryMask(buffer: Buffer, width: number, height: number) {
   return new Uint8Array(
     await sharp(buffer)
       .ensureAlpha()
@@ -76,17 +98,12 @@ async function loadMaskBuffer(buffer: Buffer, width: number, height: number) {
   );
 }
 
-async function applyOptionalShadowProtection(
+async function expandMask(
   mask: Uint8Array,
   width: number,
   height: number,
-  protectShadow: boolean,
-  featherPx: number,
+  edgeExpansionPx: number,
 ) {
-  if (!protectShadow) {
-    return mask;
-  }
-
   return new Uint8Array(
     await sharp(mask, {
       raw: {
@@ -95,38 +112,153 @@ async function applyOptionalShadowProtection(
         channels: 1,
       },
     })
-      .blur(Math.max(0.1, featherPx))
+      .blur(Math.max(0.1, edgeExpansionPx / 3))
       .threshold(1)
       .raw()
       .toBuffer(),
   );
 }
 
+function buildRingMask(expandedMask: Uint8Array, originalMask: Uint8Array) {
+  const ringMask = new Uint8Array(expandedMask.length);
+
+  for (let index = 0; index < expandedMask.length; index += 1) {
+    if ((expandedMask[index] ?? 0) > 0 && (originalMask[index] ?? 0) === 0) {
+      ringMask[index] = 255;
+    }
+  }
+
+  return ringMask;
+}
+
+function collectBoundingBoxes(mask: Uint8Array, width: number, height: number) {
+  const visited = new Uint8Array(width * height);
+  const boxes: BoundingBox[] = [];
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const startIndex = y * width + x;
+      if ((mask[startIndex] ?? 0) === 0 || visited[startIndex] === 1) {
+        continue;
+      }
+
+      const queue: number[] = [startIndex];
+      visited[startIndex] = 1;
+      let left = x;
+      let right = x;
+      let top = y;
+      let bottom = y;
+
+      while (queue.length > 0) {
+        const current = queue.pop()!;
+        const currentX = current % width;
+        const currentY = Math.floor(current / width);
+
+        left = Math.min(left, currentX);
+        right = Math.max(right, currentX);
+        top = Math.min(top, currentY);
+        bottom = Math.max(bottom, currentY);
+
+        for (let offsetY = -1; offsetY <= 1; offsetY += 1) {
+          for (let offsetX = -1; offsetX <= 1; offsetX += 1) {
+            if (offsetX === 0 && offsetY === 0) {
+              continue;
+            }
+
+            const nextX = currentX + offsetX;
+            const nextY = currentY + offsetY;
+            if (nextX < 0 || nextY < 0 || nextX >= width || nextY >= height) {
+              continue;
+            }
+
+            const nextIndex = nextY * width + nextX;
+            if ((mask[nextIndex] ?? 0) === 0 || visited[nextIndex] === 1) {
+              continue;
+            }
+
+            visited[nextIndex] = 1;
+            queue.push(nextIndex);
+          }
+        }
+      }
+
+      boxes.push({ left, top, right, bottom });
+    }
+  }
+
+  return boxes;
+}
+
+function buildShadowMask(
+  boxes: BoundingBox[],
+  width: number,
+  height: number,
+  shadowWidthPx: number,
+  shadowSidePx: number,
+) {
+  const shadowMask = new Uint8Array(width * height);
+
+  for (const box of boxes) {
+    const rectLeft = clamp(box.left - shadowSidePx, 0, width - 1);
+    const rectRight = clamp(box.right + shadowSidePx, 0, width - 1);
+    const rectTop = clamp(box.bottom - 4, 0, height - 1);
+    const rectBottom = clamp(box.bottom + shadowWidthPx, 0, height - 1);
+
+    for (let y = rectTop; y <= rectBottom; y += 1) {
+      const rowOffset = y * width;
+      for (let x = rectLeft; x <= rectRight; x += 1) {
+        shadowMask[rowOffset + x] = 255;
+      }
+    }
+  }
+
+  return shadowMask;
+}
+
 export async function generateInverseMask(
   options: InverseMaskOptions,
   planId: string,
 ): Promise<InverseMaskResult> {
-  const featherPx = Math.max(1, Math.round(options.featherPx ?? 6));
-  const baseMask = await loadMaskBuffer(
+  const edgeExpansionPx = Math.max(32, Math.round(options.edgeExpansionPx ?? 150));
+  const shadowWidthPx = Math.max(80, Math.round(options.shadowWidthPx ?? 250));
+  const shadowSidePx = Math.max(20, Math.round(options.shadowSidePx ?? 50));
+  const featherPx = Math.max(1, Math.round(options.featherPx ?? 8));
+  const baseMask = await loadBinaryMask(
     options.furnitureMaskBuffer,
     options.imageWidth,
     options.imageHeight,
   );
-  const protectedMask = await applyOptionalShadowProtection(
+  const expandedMask = await expandMask(
     baseMask,
     options.imageWidth,
     options.imageHeight,
-    options.protectShadow ?? false,
-    featherPx,
+    edgeExpansionPx,
   );
-  const inverse = new Uint8Array(options.imageWidth * options.imageHeight);
+  const ringMask = buildRingMask(expandedMask, baseMask);
+  const boxes = collectBoundingBoxes(baseMask, options.imageWidth, options.imageHeight);
+  const shadowMask = buildShadowMask(
+    boxes,
+    options.imageWidth,
+    options.imageHeight,
+    shadowWidthPx,
+    shadowSidePx,
+  );
+  const combinedMask = new Uint8Array(options.imageWidth * options.imageHeight);
 
-  for (let index = 0; index < protectedMask.length; index += 1) {
-    inverse[index] = 255 - (protectedMask[index] ?? 0);
+  mergeMasks(combinedMask, ringMask);
+  mergeMasks(combinedMask, shadowMask);
+
+  if (options.erasedRegionMask) {
+    const erasedMask = await loadBinaryMask(
+      options.erasedRegionMask,
+      options.imageWidth,
+      options.imageHeight,
+    );
+    mergeMasks(combinedMask, erasedMask);
   }
 
   const feathered = new Uint8Array(
-    await sharp(inverse, {
+    await sharp(combinedMask, {
       raw: {
         width: options.imageWidth,
         height: options.imageHeight,
@@ -137,7 +269,6 @@ export async function generateInverseMask(
       .raw()
       .toBuffer(),
   );
-
   const safetyMask = erodeMask(baseMask, options.imageWidth, options.imageHeight, 4);
 
   for (let index = 0; index < safetyMask.length; index += 1) {
@@ -157,7 +288,6 @@ export async function generateInverseMask(
       .png()
       .toBuffer(),
   );
-
   const maskUrl = await uploadToR2(
     maskBuffer,
     `route-e/${planId}/inverse-mask-${Date.now()}.png`,

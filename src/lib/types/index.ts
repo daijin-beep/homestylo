@@ -236,9 +236,16 @@ export interface SpatialAnalysis {
   floor_material: string | null;
   wall_color: string | null;
   lighting_direction: string | null;
+  camera_view?: CameraView | null;
   available_spaces: AvailableSpace[];
   existing_furniture: ExistingFurniture[];
   confidence: number;
+}
+
+export interface CameraView {
+  horizontal_angle: number;
+  vertical_angle: number;
+  direction: "left" | "right" | "center";
 }
 
 export interface AvailableSpace {
