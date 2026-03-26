@@ -3,6 +3,10 @@ import "server-only";
 import sharp from "sharp";
 import { uploadToR2 } from "@/lib/api/r2";
 import { updateEffectProgress } from "@/lib/generation/effectProgress";
+import {
+  buildRouteFPrompt,
+  describeProductImage,
+} from "@/lib/generation/promptBuilder";
 import { preprocessProductImage } from "@/lib/generation/productImagePreprocessor";
 import { runAutoCalibration } from "@/lib/spatial/autoCalibrationPipeline";
 import {
@@ -83,18 +87,25 @@ function resolveItemDimensions(item: PlanItemRow) {
   return { width, depth, height };
 }
 
-function buildTemporaryRouteFPrompt(item: PlanItemRow, room: RoomRow) {
-  const wallColor = room.spatial_analysis?.wall_color ?? "neutral walls";
-  const floorMaterial = room.spatial_analysis?.floor_material ?? "indoor flooring";
-  const lightingDirection =
-    room.spatial_analysis?.lighting_direction ?? "soft interior lighting";
+function readStoredProductDescription(item: PlanItemRow) {
+  if (!item.product_description || typeof item.product_description !== "object") {
+    return null;
+  }
 
+  const text = (item.product_description as Record<string, unknown>).text;
+  return typeof text === "string" && text.trim() ? text.trim() : null;
+}
+
+function buildRoomDescription(room: RoomRow) {
   return [
-    `Place a ${resolveItemName(item)} in the masked region only.`,
-    `Match ${wallColor} and ${floorMaterial}.`,
-    `Respect ${lightingDirection}.`,
-    "Photorealistic interior rendering.",
-  ].join(" ");
+    room.room_type.replaceAll("_", " "),
+    room.spatial_analysis?.wall_color ? `${room.spatial_analysis.wall_color} walls` : null,
+    room.spatial_analysis?.floor_material
+      ? `${room.spatial_analysis.floor_material} flooring`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 async function getImageSize(imageUrl: string) {
@@ -251,6 +262,10 @@ export async function runRouteFPipeline(
       throw new Error(`${itemName} failed during product preprocessing.`);
     }
 
+    const productDescription =
+      readStoredProductDescription(item) ??
+      (await describeProductImage(extractedImageUrl, itemName, item.category));
+
     const furnitureBBox = toFurnitureBBox(item);
     const projection = await projectFurnitureMask(
       calibration,
@@ -263,7 +278,13 @@ export async function runRouteFPipeline(
       `route-f/${planId}/mask-${Date.now()}.png`,
       "image/png",
     );
-    const prompt = buildTemporaryRouteFPrompt(item, room);
+    const prompt = buildRouteFPrompt({
+      furnitureDescription: productDescription,
+      category: item.category,
+      roomDescription: buildRoomDescription(room),
+      lightingDirection: room.spatial_analysis?.lighting_direction ?? "soft interior lighting",
+      stylePreference: plan.style_preference ?? undefined,
+    });
 
     const { error: itemUpdateError } = await supabase
       .from("furnishing_plan_items")
@@ -274,8 +295,10 @@ export async function runRouteFPipeline(
         extracted_image_url: extractedImageUrl,
         candidate_image_urls: [itemImageUrl, extractedImageUrl],
         product_description: {
-          text: resolveItemName(item),
-          source: "route_f_placeholder",
+          text: productDescription,
+          source: "claude_vision",
+          generated_at: new Date().toISOString(),
+          reference_image_url: extractedImageUrl,
         },
       })
       .eq("id", item.id);
@@ -296,6 +319,7 @@ export async function runRouteFPipeline(
       extraParams: {
         maskUrl,
         prompt,
+        productDescription,
       },
     });
 

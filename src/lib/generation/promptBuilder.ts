@@ -1,5 +1,6 @@
 import "server-only";
 
+import { analyzeImage } from "@/lib/api/claude";
 import { FLUX_PROMPTS, PRODUCT_ROLE_CATEGORIES, STYLE_DEFINITIONS } from "@/lib/constants";
 import type { StyleType } from "@/lib/types";
 
@@ -15,6 +16,14 @@ export interface PromptContext {
   roomWidthMm: number;
   roomDepthMm: number | null;
   aestheticKeywords?: string[];
+}
+
+export interface RouteFPromptParams {
+  furnitureDescription: string;
+  category: string;
+  roomDescription: string;
+  lightingDirection: string;
+  stylePreference?: string;
 }
 
 const STYLE_ALIASES: Record<string, StyleType> = {
@@ -39,6 +48,9 @@ const CATEGORY_PRIORITY: Record<string, number> = (() => {
   return priority;
 })();
 
+const PRODUCT_DESCRIPTION_SYSTEM_PROMPT =
+  "You describe furniture product images for downstream AI rendering. Respond with a single plain paragraph only.";
+
 function normalizeStyle(style: string): StyleType {
   return STYLE_ALIASES[style] ?? "dopamine";
 }
@@ -61,6 +73,14 @@ function normalizeRoomType(roomType: string) {
   }
 
   return "living room";
+}
+
+function normalizeText(value: string) {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[`"'']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function buildFurnitureDescription(context: PromptContext) {
@@ -88,6 +108,41 @@ function buildFurnitureDescription(context: PromptContext) {
   return `furniture layout includes ${segments.join("; ")}`;
 }
 
+function normalizeWordCount(text: string, maxWords: number) {
+  const words = text.split(/\s+/).filter(Boolean);
+
+  if (words.length <= maxWords) {
+    return words.join(" ");
+  }
+
+  return words.slice(0, maxWords).join(" ");
+}
+
+function buildStyleHint(stylePreference?: string) {
+  if (!stylePreference?.trim()) {
+    return "";
+  }
+
+  const rawStyle = stylePreference.trim();
+  const normalized = STYLE_ALIASES[rawStyle];
+  if (normalized) {
+    return STYLE_DEFINITIONS[normalized].fluxKeywords.join(", ");
+  }
+
+  return rawStyle;
+}
+
+function categoryToPhrase(category: string) {
+  return category.replaceAll("_", " ");
+}
+
+function fallbackProductDescription(productName: string, category: string) {
+  return normalizeWordCount(
+    `A realistic ${productName} ${categoryToPhrase(category)} with clear material textures, clean edges, balanced proportions, and furniture details suitable for photorealistic interior rendering.`,
+    40,
+  );
+}
+
 export function buildFluxPrompt(context: PromptContext): string {
   const style = normalizeStyle(context.style);
   const roomType = normalizeRoomType(context.roomType);
@@ -95,7 +150,7 @@ export function buildFluxPrompt(context: PromptContext): string {
   const roomWidth = formatMeters(context.roomWidthMm);
   const roomDepth = formatMeters(context.roomDepthMm);
   const roomDescription = roomDepth
-    ? `room approximately ${roomWidth ?? "3.6"}m × ${roomDepth}m`
+    ? `room approximately ${roomWidth ?? "3.6"}m x ${roomDepth}m`
     : `room approximately ${roomWidth ?? "3.6"}m wide`;
   const furnitureDescription = buildFurnitureDescription(context);
 
@@ -121,6 +176,29 @@ export function buildFluxPrompt(context: PromptContext): string {
 
 export function buildNegativePrompt(): string {
   return "distorted proportions, unrealistic scale, cartoon, anime, sketch, blurry, low quality, text, watermark, signature, people, oversaturated colors, floating furniture, impossible geometry";
+}
+
+export function buildRouteFPrompt(params: RouteFPromptParams): string {
+  const roomDescription = normalizeText(params.roomDescription);
+  const lightingDirection = normalizeText(params.lightingDirection);
+  const furnitureDescription = normalizeWordCount(
+    normalizeText(params.furnitureDescription) || `a realistic ${categoryToPhrase(params.category)}`,
+    40,
+  );
+  const styleHint = buildStyleHint(params.stylePreference);
+
+  return [
+    furnitureDescription,
+    roomDescription,
+    lightingDirection ? `${lightingDirection}, matching the existing room lighting` : "",
+    styleHint ? `subtle style influence: ${styleHint}` : "",
+    "photorealistic furniture rendering inside the masked area only",
+    "accurate perspective and scale",
+    "natural contact shadows and ambient occlusion",
+    "no people, no text, no watermark",
+  ]
+    .filter(Boolean)
+    .join(", ");
 }
 
 export function buildInpaintPrompt(
@@ -175,4 +253,42 @@ export function buildSceneRegenerationPrompt(
   ]
     .filter(Boolean)
     .join(", ");
+}
+
+export async function describeProductImage(
+  imageUrl: string,
+  productName: string,
+  category: string,
+): Promise<string> {
+  const userPrompt = `
+Describe this furniture product image for AI rendering.
+Product: ${productName} (Category: ${category})
+
+Provide a concise visual description covering:
+- Color and material (e.g., "dark gray linen fabric", "walnut solid wood")
+- Shape and form (e.g., "L-shaped sectional", "round pedestal")
+- Style (e.g., "mid-century modern", "Scandinavian minimalist")
+- Notable features (e.g., "tapered wooden legs", "tufted cushions", "chrome frame")
+
+Output a single paragraph, 20-40 words. Use only visual attributes.
+Do not mention brand names, prices, or dimensions.
+`.trim();
+
+  try {
+    const response = await analyzeImage(
+      imageUrl,
+      PRODUCT_DESCRIPTION_SYSTEM_PROMPT,
+      userPrompt,
+    );
+    const normalized = normalizeWordCount(normalizeText(response), 40);
+    return normalized || fallbackProductDescription(productName, category);
+  } catch (error) {
+    console.error("[promptBuilder] describeProductImage failed", {
+      imageUrl,
+      productName,
+      category,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fallbackProductDescription(productName, category);
+  }
 }

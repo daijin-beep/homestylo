@@ -9,6 +9,7 @@ export interface EffectGenerationParams {
   pipeline?: string;
   maskUrl?: string | null;
   prompt?: string | null;
+  productDescription?: string | null;
   model?: string | null;
   roughPreviewUrl?: string | null;
   failed_at?: string;
