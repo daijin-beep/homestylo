@@ -86,3 +86,4 @@ next-env.d.ts
 
 # Vercel
 .vercel
+.claude/
