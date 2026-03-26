@@ -227,6 +227,12 @@ export interface Room {
   spatial_analysis: SpatialAnalysis | null;
   depth_map_url: string | null;
   camera_params: CameraParams | null;
+  depth_raw_url?: string | null;
+  focal_length_px?: number | null;
+  camera_calibration?: CameraCalibrationData | null;
+  calibration_source?: CalibrationSource | null;
+  calibration_accuracy?: number | null;
+  anchor_detection?: AnchorDetectionResult | null;
   created_at: string;
   updated_at: string;
 }
@@ -304,6 +310,12 @@ export interface FurnishingPlanItem {
   status: ItemStatus;
   purchased_at: string | null;
   sort_order: number;
+  position_3d?: Vec3mm | null;
+  position_pixel?: FurniturePixelPosition | null;
+  rotation_y?: number | null;
+  product_description?: Record<string, unknown> | null;
+  extracted_image_url?: string | null;
+  candidate_image_urls?: string[] | null;
   created_at: string;
 }
 
@@ -313,4 +325,75 @@ export interface BudgetAllocation {
   weight: number;
   allocated_amount: number;
   price_range: { min: number; max: number };
+}
+
+// ============================================
+// V2.0 Types - Spatial calibration + Route F
+// ============================================
+
+export type AccuracyLevel = "L0" | "L1" | "L2" | "L3";
+export type CalibrationSource = "door" | "ceiling" | "user_wall" | "floorplan";
+
+export interface Vec2px {
+  x: number;
+  y: number;
+}
+
+export interface Vec3mm {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export interface SemanticAnchor {
+  type: "door" | "ceiling_height" | "floor_tile" | "window" | "baseboard";
+  pixelBounds: { topLeft: Vec2px; bottomRight: Vec2px };
+  knownSizeMm: number;
+  measureDirection: "vertical" | "horizontal";
+  confidence: number;
+}
+
+export interface AnchorDetectionResult {
+  anchors: SemanticAnchor[];
+  bestAnchor: SemanticAnchor | null;
+  roomFeatures: {
+    wallColor: string | null;
+    floorMaterial: string | null;
+    lightingDirection: string | null;
+    existingFurniture: ExistingFurniture[];
+    shootingDirection: string | null;
+  };
+}
+
+export interface CameraCalibrationData {
+  K: number[][];
+  scaleFactor: number;
+  focalLengthPx: number;
+  imageWidth: number;
+  imageHeight: number;
+  calibrationSource: CalibrationSource;
+  estimatedAccuracy: number;
+  fovYDeg: number;
+}
+
+export interface FurniturePixelPosition {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface FurnitureBBox3D {
+  center: Vec3mm;
+  width: number;
+  depth: number;
+  height: number;
+  rotationY: number;
+}
+
+export interface ProjectionResult {
+  maskBuffer: Buffer;
+  boundingRect: FurniturePixelPosition;
+  wallWidthPercent: number;
+  isClipped: boolean;
 }
