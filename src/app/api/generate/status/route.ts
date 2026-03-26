@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceRoleClient } from "@/lib/supabase/admin";
+
+type RouteFStage = "analyzing" | "preparing" | "generating" | "done";
 
 interface EffectImageStatusRow {
   generation_status: string;
@@ -17,105 +19,89 @@ interface EffectImageStatusRow {
           previewUrl?: string | null;
         };
         roughPreviewUrl?: string | null;
+        prompt?: string | null;
+        maskUrl?: string | null;
+        model?: string | null;
+        productDescription?: string | null;
       }
     | null;
-  hotspot_map:
-    | Array<{
-        productId?: string;
-        product_id?: string;
-        label?: string;
-        x?: number;
-        y?: number;
-        width?: number;
-        height?: number;
-        confidence?: number;
-      }>
-    | null;
 }
 
-function createServiceRoleClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("缺少 Supabase service role 环境变量。");
+function normalizeStage(value: string | undefined | null): RouteFStage | null {
+  if (
+    value === "analyzing" ||
+    value === "preparing" ||
+    value === "generating" ||
+    value === "done"
+  ) {
+    return value;
   }
 
-  return createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
-  });
+  return null;
 }
 
-function mapLegacyStage(status: string) {
+function mapStatusToStage(status: string): RouteFStage {
   switch (status) {
-    case "depth":
-      return "analyzing";
-    case "flux":
-      return "placing";
-    case "hotspot":
-      return "refining";
     case "done":
       return "done";
+    case "generating":
+      return "generating";
+    case "preparing":
+      return "preparing";
     default:
-      return "classifying";
+      return "analyzing";
   }
 }
 
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
-    const schemeId = url.searchParams.get("scheme_id")?.trim();
     const planId = url.searchParams.get("plan_id")?.trim();
 
-    if (!schemeId && !planId) {
+    if (!planId) {
       return NextResponse.json(
-        { success: false, error: "缺少 scheme_id 或 plan_id。" },
+        { success: false, error: "Missing plan_id." },
         { status: 400 },
       );
     }
 
     const supabase = createServiceRoleClient();
-    let query = supabase
+    const { data: record, error } = await supabase
       .from("effect_images")
-      .select(
-        "generation_status, image_url, error_message, version, generation_params, hotspot_map",
-      )
+      .select("generation_status, image_url, error_message, version, generation_params")
+      .eq("plan_id", planId)
       .order("version", { ascending: false })
-      .limit(1);
+      .limit(1)
+      .maybeSingle<EffectImageStatusRow>();
 
-    query = planId ? query.eq("plan_id", planId) : query.eq("scheme_id", schemeId!);
+    if (error) {
+      throw new Error(error.message);
+    }
 
-    const { data: record, error } = await query.single<EffectImageStatusRow>();
-
-    if (error || !record) {
-      return NextResponse.json(
-        {
-          success: true,
-          status: "pending",
-          stage: "classifying",
-          imageUrl: null,
-          previewUrl: null,
-          currentItem: null,
-          currentIndex: null,
-          totalItems: null,
-          errorMessage: null,
-          version: 0,
-          params: null,
-          hotspots: [],
-        },
-        { status: 200 },
-      );
+    if (!record) {
+      return NextResponse.json({
+        success: true,
+        status: "pending",
+        stage: "analyzing",
+        imageUrl: null,
+        previewUrl: null,
+        currentItem: null,
+        currentIndex: null,
+        totalItems: null,
+        errorMessage: null,
+        version: 0,
+        params: null,
+      });
     }
 
     const progress = record.generation_params?.progress;
+    const stage =
+      normalizeStage(progress?.stage) ?? mapStatusToStage(record.generation_status);
 
     return NextResponse.json({
       success: true,
       status: record.generation_status,
-      stage: progress?.stage ?? mapLegacyStage(record.generation_status),
+      stage,
       imageUrl: record.image_url || null,
       previewUrl: progress?.previewUrl ?? record.generation_params?.roughPreviewUrl ?? null,
       currentItem: progress?.currentItem ?? null,
@@ -124,11 +110,10 @@ export async function GET(request: Request) {
       errorMessage: record.error_message || null,
       version: record.version,
       params: record.generation_params,
-      hotspots: record.hotspot_map ?? [],
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "读取生成状态失败。";
+      error instanceof Error ? error.message : "Failed to read generation status.";
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

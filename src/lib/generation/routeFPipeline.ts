@@ -3,6 +3,7 @@ import "server-only";
 import sharp from "sharp";
 import { uploadToR2 } from "@/lib/api/r2";
 import { updateEffectProgress } from "@/lib/generation/effectProgress";
+import { generateWithFluxFillPro } from "@/lib/generation/fluxFillPro";
 import {
   buildRouteFPrompt,
   describeProductImage,
@@ -226,7 +227,7 @@ export async function runRouteFPipeline(
       generationStatus: "analyzing",
       progress: {
         stage: "analyzing",
-        message: "正在分析房间标定信息...",
+        message: "Analyzing room calibration and geometry...",
         currentItem: itemName,
         currentIndex: 1,
         totalItems: 1,
@@ -241,10 +242,10 @@ export async function runRouteFPipeline(
     const imageSize = await getImageSize(roomImageUrl);
 
     await updateEffectProgress(effectImageId, {
-      generationStatus: "analyzing",
+      generationStatus: "preparing",
       progress: {
-        stage: "analyzing",
-        message: "正在处理商品图和家具投影...",
+        stage: "preparing",
+        message: "Preparing product image and projection mask...",
         currentItem: itemName,
         currentIndex: 1,
         totalItems: 1,
@@ -308,10 +309,10 @@ export async function runRouteFPipeline(
     }
 
     await updateEffectProgress(effectImageId, {
-      generationStatus: "analyzing",
+      generationStatus: "preparing",
       progress: {
         stage: "preparing",
-        message: "正在准备 Route F 渲染参数...",
+        message: "Preparing Route F rendering parameters...",
         currentItem: itemName,
         currentIndex: 1,
         totalItems: 1,
@@ -323,7 +324,42 @@ export async function runRouteFPipeline(
       },
     });
 
-    throw new Error("Route F rendering module not yet implemented.");
+    await updateEffectProgress(effectImageId, {
+      generationStatus: "generating",
+      progress: {
+        stage: "generating",
+        message: "Generating furniture inside the projected mask...",
+        currentItem: itemName,
+        currentIndex: 1,
+        totalItems: 1,
+      },
+    });
+
+    const renderResult = await generateWithFluxFillPro({
+      imageUrl: roomImageUrl,
+      maskUrl,
+      prompt,
+      planId,
+    });
+
+    await updateEffectProgress(effectImageId, {
+      generationStatus: "done",
+      imageUrl: renderResult.imageUrl,
+      progress: {
+        stage: "done",
+        message: "Route F rendering completed.",
+        currentItem: itemName,
+        currentIndex: 1,
+        totalItems: 1,
+      },
+      extraParams: {
+        maskUrl,
+        prompt,
+        productDescription,
+        model: renderResult.model,
+        processingTimeMs: Date.now() - startedAt,
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Route F rendering pipeline failed.";

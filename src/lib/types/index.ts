@@ -25,6 +25,8 @@ export type GenerationStatus =
   | "hotspot"
   | "classifying"
   | "analyzing"
+  | "preparing"
+  | "generating"
   | "placing"
   | "refining"
   | "done"

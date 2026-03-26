@@ -4,23 +4,19 @@ import Image from "next/image";
 import { motion } from "framer-motion";
 import { CheckCircle2, LoaderCircle, Sparkles } from "lucide-react";
 
+export type ProgressiveStage = "analyzing" | "preparing" | "generating" | "done";
+
 interface ProgressiveLoadingProps {
-  stage: "classifying" | "analyzing" | "placing" | "refining" | "done";
+  stage: ProgressiveStage;
   currentItem?: string;
   currentIndex?: number;
   totalItems?: number;
   previewUrl?: string;
 }
 
-const STAGES: Array<ProgressiveLoadingProps["stage"]> = [
-  "classifying",
-  "analyzing",
-  "placing",
-  "refining",
-  "done",
-];
+const STAGES: ProgressiveStage[] = ["analyzing", "preparing", "generating", "done"];
 
-function getStageIndex(stage: ProgressiveLoadingProps["stage"]) {
+function getStageIndex(stage: ProgressiveStage) {
   return STAGES.indexOf(stage);
 }
 
@@ -31,16 +27,14 @@ function getStageCopy({
   totalItems,
 }: Omit<ProgressiveLoadingProps, "previewUrl">) {
   switch (stage) {
-    case "classifying":
-      return "正在仔细研究这件家具...";
     case "analyzing":
-      return "正在丈量你家的空间...";
-    case "placing":
-      return `正在把${currentItem ?? "家具"}搬进去... (${currentIndex ?? 0}/${totalItems ?? 0})`;
-    case "refining":
-      return "正在调光打磨细节... 快好了✨";
+      return "正在分析你的房间空间...";
+    case "preparing":
+      return "正在准备家具渲染...";
+    case "generating":
+      return `AI 正在将${currentItem ?? "家具"}放入你的房间... (${currentIndex ?? 1}/${totalItems ?? 1})`;
     case "done":
-      return "你的新家准备好了！";
+      return "完成！";
     default:
       return "正在处理中...";
   }
@@ -76,17 +70,17 @@ export function ProgressiveLoading({
       </div>
 
       <div className="overflow-hidden rounded-[24px] border border-border bg-muted/30">
-        {stage === "placing" && previewUrl ? (
+        {stage === "generating" && previewUrl ? (
           <div className="relative aspect-[4/3]">
             <Image
               src={previewUrl}
-              alt="粗合成预览图"
+              alt="生成预览图"
               fill
               className="object-cover"
               unoptimized
             />
             <div className="absolute right-4 top-4 rounded-full bg-black/65 px-3 py-1 text-xs font-medium text-white">
-              精修中...
+              渲染中
             </div>
           </div>
         ) : (
@@ -94,14 +88,14 @@ export function ProgressiveLoading({
             <Sparkles className="h-10 w-10 text-primary" />
             <p className="max-w-sm px-6 text-sm text-muted-foreground">
               {stage === "done"
-                ? "最终效果图已经完成，马上就能看到。"
-                : "系统正在逐步完成分类、摆放和边缘精修。"}
+                ? "效果图已经生成完成，你可以查看最终结果。"
+                : "系统正在依次完成空间分析、投影准备和最终渲染。"}
             </p>
           </div>
         )}
       </div>
 
-      <div className="grid grid-cols-5 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         {STAGES.map((item, index) => {
           const isActive = index === activeIndex;
           const isCompleted = index < activeIndex;

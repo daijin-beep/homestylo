@@ -9,12 +9,12 @@ const GeneratePageClient = dynamic(
 );
 
 export default function GeneratePage() {
-  const params = useParams<{ schemeId: string }>();
-  const schemeId = Array.isArray(params.schemeId) ? params.schemeId[0] : params.schemeId;
+  const params = useParams<{ planId: string }>();
+  const planId = Array.isArray(params.planId) ? params.planId[0] : params.planId;
 
-  if (!schemeId) {
+  if (!planId) {
     return null;
   }
 
-  return <GeneratePageClient schemeId={schemeId} />;
+  return <GeneratePageClient planId={planId} />;
 }

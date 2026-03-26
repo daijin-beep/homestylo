@@ -5,17 +5,21 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { ProgressiveLoading } from "@/components/generate/ProgressiveLoading";
+import {
+  ProgressiveLoading,
+  type ProgressiveStage,
+} from "@/components/generate/ProgressiveLoading";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface GeneratePageClientProps {
-  schemeId: string;
+  planId: string;
 }
 
 interface StatusPayload {
   success?: boolean;
-  stage?: "classifying" | "analyzing" | "placing" | "refining" | "done";
+  status?: string;
+  stage?: ProgressiveStage;
   imageUrl?: string | null;
   previewUrl?: string | null;
   currentItem?: string | null;
@@ -24,9 +28,8 @@ interface StatusPayload {
   errorMessage?: string | null;
 }
 
-export default function GeneratePageClient({ schemeId }: GeneratePageClientProps) {
-  const planId = schemeId;
-  const [stage, setStage] = useState<StatusPayload["stage"]>("classifying");
+export default function GeneratePageClient({ planId }: GeneratePageClientProps) {
+  const [stage, setStage] = useState<ProgressiveStage>("analyzing");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [finalImageUrl, setFinalImageUrl] = useState<string | null>(null);
   const [currentItem, setCurrentItem] = useState<string | undefined>(undefined);
@@ -60,7 +63,7 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
           return;
         }
 
-        setStage(payload.stage ?? "classifying");
+        setStage(payload.stage ?? "analyzing");
         setPreviewUrl(payload.previewUrl ?? null);
         setFinalImageUrl(payload.imageUrl ?? null);
         setCurrentItem(payload.currentItem ?? undefined);
@@ -71,7 +74,10 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
           setErrorMessage(payload.errorMessage);
         }
 
-        if (payload.stage === "done" && payload.imageUrl) {
+        if (
+          payload.status === "failed" ||
+          (payload.stage === "done" && payload.imageUrl)
+        ) {
           if (timer) {
             window.clearInterval(timer);
           }
@@ -96,7 +102,7 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
         };
 
         if (!response.ok || payload.success === false) {
-          throw new Error(payload.reason ?? payload.error ?? "生成任务创建失败");
+          throw new Error(payload.reason ?? payload.error ?? "创建生成任务失败");
         }
 
         setIsBootstrapping(false);
@@ -105,7 +111,7 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
           void pollStatus();
         }, 2000);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "生成任务创建失败";
+        const message = error instanceof Error ? error.message : "创建生成任务失败";
         setErrorMessage(message);
         setIsBootstrapping(false);
         toast.error(message);
@@ -141,21 +147,25 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
           </CardHeader>
           <CardContent>
             <Button asChild>
-              <Link href={planId ? `/furnishing/${planId}` : "/dashboard"}>回到方案继续调整</Link>
+              <Link href={planId ? `/furnishing/${planId}` : "/dashboard"}>
+                回到方案继续调整
+              </Link>
             </Button>
           </CardContent>
         </Card>
       ) : finalImageUrl && stage === "done" ? (
         <Card className="overflow-hidden border-border bg-card">
           <CardHeader>
-            <CardTitle className="text-2xl font-serif">你的新家准备好了</CardTitle>
-            <CardDescription>Route D 已完成粗合成与边缘精修，你可以继续回到软装清单调整商品。</CardDescription>
+            <CardTitle className="text-2xl font-serif">你的效果图已经准备好了</CardTitle>
+            <CardDescription>
+              Route F 已经完成空间分析、投影计算和原图内渲染，你可以继续返回清单调整商品。
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="relative aspect-[4/3] overflow-hidden rounded-3xl border border-border bg-muted/30">
               <Image
                 src={finalImageUrl}
-                alt="Route D 效果图"
+                alt="Route F 效果图"
                 fill
                 className="object-cover"
                 unoptimized
@@ -163,7 +173,9 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
             </div>
             <div className="flex flex-wrap gap-3">
               <Button asChild>
-                <Link href={planId ? `/furnishing/${planId}` : "/dashboard"}>返回软装清单</Link>
+                <Link href={planId ? `/furnishing/${planId}` : "/dashboard"}>
+                  返回软装清单
+                </Link>
               </Button>
               <Button asChild variant="outline">
                 <a href={finalImageUrl} target="_blank" rel="noreferrer">
@@ -182,7 +194,7 @@ export default function GeneratePageClient({ schemeId }: GeneratePageClientProps
         </Card>
       ) : (
         <ProgressiveLoading
-          stage={stage ?? "classifying"}
+          stage={stage}
           currentItem={currentItem}
           currentIndex={currentIndex}
           totalItems={totalItems}
