@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useDropzone } from "react-dropzone";
 import {
   Camera,
@@ -81,10 +81,11 @@ export function RoomPhotoUploader({
     return [
       widestWall ? `墙面宽度：约 ${formatDimension(widestWall)}` : null,
       analysis.floor_material
-        ? `地板材质：${FLOOR_MATERIAL_LABELS[analysis.floor_material] ?? analysis.floor_material}`
+        ? `地面材质：${FLOOR_MATERIAL_LABELS[analysis.floor_material] ?? analysis.floor_material}`
         : null,
       analysis.wall_color ? `墙面颜色：${analysis.wall_color}` : null,
       analysis.lighting_direction ? `光线方向：${analysis.lighting_direction}` : null,
+      analysis.shooting_direction ? `拍摄方向：${analysis.shooting_direction}` : null,
     ].filter((item): item is string => Boolean(item));
   }, [analysis]);
 
@@ -125,12 +126,14 @@ export function RoomPhotoUploader({
 
       if (kind === "photo") {
         setPhotoUrl(payload.data.room.current_photo_url || payload.data.room.original_photo_url);
-        toast.success("房间照片已上传，开始分析空间");
-      } else {
-        setFloorPlanUrl(payload.data.room.floor_plan_url);
-        toast.success("户型图已上传，将用来提高分析精度");
+        setAnalysis(null);
+        setAnalysisPartial(false);
+        toast.success("房间照片已上传，系统正在后台自动标定");
+        return;
       }
 
+      setFloorPlanUrl(payload.data.room.floor_plan_url);
+      toast.success("户型图已上传，正在更新空间分析");
       await runAnalysis();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "上传失败");
@@ -163,7 +166,7 @@ export function RoomPhotoUploader({
       onAnalysisComplete?.(payload.data);
 
       if (payload.partial) {
-        toast.warning("分析已返回可用默认结果，你可以继续，也可以稍后重试");
+        toast.warning("分析返回了可继续使用的默认结果，稍后可以重新分析");
       } else {
         toast.success("空间分析完成");
       }
@@ -216,17 +219,17 @@ export function RoomPhotoUploader({
     <div className="space-y-4">
       <UploadCard
         title="房间照片"
-        description="拍照或上传一张房间正视图，AI 会自动分析墙面、光线和可摆放区域。"
+        description="上传房间实拍图后，系统会自动在后台执行深度估计、锚点检测和相机标定。"
         isBusy={isUploadingPhoto}
         imageUrl={photoUrl}
-        buttonLabel={photoUrl ? "重新拍摄 / 替换照片" : "拍照或上传房间照片"}
+        buttonLabel={photoUrl ? "重新上传房间照片" : "上传房间照片"}
         emptyIcon={<Camera className="h-8 w-8" />}
         dropzone={photoDropzone}
       />
 
       <UploadCard
         title="户型图（可选）"
-        description="上传户型图后，AI 会用标注尺寸去校准房间分析结果。"
+        description="上传户型图后，可继续使用现有的手动空间分析作为补充参考。"
         isBusy={isUploadingFloorPlan}
         imageUrl={floorPlanUrl}
         buttonLabel={floorPlanUrl ? "替换户型图" : "上传户型图"}
@@ -241,12 +244,14 @@ export function RoomPhotoUploader({
               <p className="text-sm font-medium text-foreground">AI 空间分析</p>
               <p className="text-sm text-muted-foreground">
                 {isAnalyzing
-                  ? "AI 正在分析你的房间..."
+                  ? "AI 正在重新分析你的房间..."
                   : analysis
                     ? analysisPartial
-                      ? "已返回可继续使用的部分结果"
-                      : "分析完成，可以确认并继续创建方案"
-                    : "上传房间照片后会自动开始分析"}
+                      ? "当前展示的是可继续使用的部分分析结果。"
+                      : "分析完成，可以继续创建软装方案。"
+                    : photoUrl
+                      ? "照片已上传，后台自动标定进行中；也可以手动触发旧分析作为补充。"
+                      : "先上传房间照片，系统才会开始自动标定。"}
               </p>
             </div>
             {analysis ? (
@@ -266,7 +271,7 @@ export function RoomPhotoUploader({
           {isAnalyzing ? (
             <div className="flex min-h-28 items-center justify-center gap-3 rounded-2xl border border-dashed border-border bg-muted/35 px-4 text-sm text-muted-foreground">
               <LoaderCircle className="h-5 w-5 animate-spin" />
-              AI 正在分析你的房间...
+              AI 正在重新分析你的房间...
             </div>
           ) : analysis ? (
             <div className="space-y-3 rounded-2xl border border-border bg-muted/25 p-4">
@@ -282,14 +287,14 @@ export function RoomPhotoUploader({
                   ))
                 ) : (
                   <div className="rounded-xl border border-border bg-background px-3 py-2 text-sm text-muted-foreground sm:col-span-2">
-                    当前是默认分析结果，你可以稍后补传更清晰的照片再重试。
+                    当前没有足够的分析摘要，可稍后重新上传更清晰的照片再试。
                   </div>
                 )}
               </div>
 
               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                <span>可摆放区域 {analysis.available_spaces.length} 个</span>
-                <span>已识别现有家具 {analysis.existing_furniture.length} 件</span>
+                <span>可摆放区域 {analysis.available_spaces.length} 处</span>
+                <span>识别到现有家具 {analysis.existing_furniture.length} 件</span>
                 <span>置信度 {Math.round(analysis.confidence * 100)}%</span>
               </div>
 
@@ -317,7 +322,7 @@ export function RoomPhotoUploader({
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-border bg-muted/25 px-4 py-6 text-sm text-muted-foreground">
-              先上传房间照片，分析完成后这里会显示墙面宽度、材质颜色和光线方向摘要。
+              上传房间照片后，自动标定结果会写入房间记录；如果你想立即查看旧版空间分析，也可以使用“重新分析”按钮。
             </div>
           )}
         </CardContent>
@@ -340,7 +345,7 @@ function UploadCard({
   isBusy: boolean;
   imageUrl: string | null;
   buttonLabel: string;
-  emptyIcon: React.ReactNode;
+  emptyIcon: ReactNode;
   dropzone: ReturnType<typeof useDropzone>;
 }) {
   const { getRootProps, getInputProps, isDragActive, open } = dropzone;

@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { uploadToR2 } from "@/lib/api/r2";
 import { getOwnedRoomRecord } from "@/lib/room/ownership";
+import { runAutoCalibration } from "@/lib/spatial/autoCalibrationPipeline";
 import { createClient } from "@/lib/supabase/server";
 
 const ALLOWED_IMAGE_TYPES = new Set([
@@ -21,6 +22,17 @@ function getFileExtension(file: File) {
 
   const nameExtension = file.name.split(".").pop()?.toLowerCase();
   return nameExtension || "jpg";
+}
+
+function scheduleAutoCalibration(task: () => Promise<void>) {
+  if (typeof after === "function") {
+    after(() => {
+      void task();
+    });
+    return;
+  }
+
+  void task();
 }
 
 export async function POST(
@@ -100,6 +112,10 @@ export async function POST(
         { success: false, error: updateError?.message || "Failed to update room" },
         { status: 500 },
       );
+    }
+
+    if (uploadType === "photo") {
+      scheduleAutoCalibration(() => runAutoCalibration(roomId, imageUrl));
     }
 
     return NextResponse.json({
