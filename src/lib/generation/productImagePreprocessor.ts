@@ -3,6 +3,7 @@ import "server-only";
 import sharp from "sharp";
 import { analyzeImage } from "@/lib/api/claude";
 import { runPredictionWithRetry } from "@/lib/api/replicate";
+import { downloadModelOutput } from "@/lib/api/replicateUtils";
 import { uploadToR2 } from "@/lib/api/r2";
 
 type ProductImageClassification = "white_bg" | "scene" | "multi_angle" | "other";
@@ -25,12 +26,6 @@ interface ClassificationResponse {
 interface ModelConfig {
   model: string;
   buildInput: (imageUrl: string, prompt?: string) => Record<string, unknown>;
-}
-
-interface OutputCandidate {
-  url: string | null;
-  base64: string | null;
-  mimeType: string;
 }
 
 export interface PreprocessResult {
@@ -153,88 +148,6 @@ function parseClassification(raw: string): ClassificationResponse {
   }
 }
 
-function isHttpUrl(value: string) {
-  return /^https?:\/\//i.test(value.trim());
-}
-
-function extractStringPayload(value: string): OutputCandidate | null {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  if (isHttpUrl(trimmed)) {
-    return {
-      url: trimmed,
-      base64: null,
-      mimeType: "image/png",
-    };
-  }
-
-  const dataUriMatch = trimmed.match(/^data:(image\/[a-z0-9+.-]+);base64,(.+)$/i);
-  if (dataUriMatch?.[2]) {
-    return {
-      url: null,
-      base64: dataUriMatch[2],
-      mimeType: dataUriMatch[1] ?? "image/png",
-    };
-  }
-
-  const likelyBase64 = /^[A-Za-z0-9+/=\r\n]+$/.test(trimmed) && trimmed.length > 64;
-  if (likelyBase64) {
-    return {
-      url: null,
-      base64: trimmed.replace(/\s+/g, ""),
-      mimeType: "image/png",
-    };
-  }
-
-  return null;
-}
-
-function extractOutputCandidate(output: unknown): OutputCandidate | null {
-  if (typeof output === "string") {
-    return extractStringPayload(output);
-  }
-
-  if (Array.isArray(output)) {
-    for (const entry of output) {
-      const candidate = extractOutputCandidate(entry);
-      if (candidate) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  if (output && typeof output === "object") {
-    const record = output as Record<string, unknown>;
-    const possibleKeys = [
-      "url",
-      "image",
-      "output",
-      "images",
-      "prediction",
-      "result",
-      "mask",
-      "data",
-      "base64",
-    ];
-
-    for (const key of possibleKeys) {
-      if (!(key in record)) {
-        continue;
-      }
-
-      const candidate = extractOutputCandidate(record[key]);
-      if (candidate) {
-        return candidate;
-      }
-    }
-  }
-
-  return null;
-}
 
 async function downloadBufferFromUrl(imageUrl: string) {
   const headers = { ...DEFAULT_IMAGE_HEADERS } as Record<string, string>;
@@ -261,35 +174,6 @@ async function downloadBufferFromUrl(imageUrl: string) {
   return {
     buffer: Buffer.from(arrayBuffer),
     contentType,
-  };
-}
-
-async function downloadModelOutput(output: unknown) {
-  const candidate = extractOutputCandidate(output);
-  if (!candidate) {
-    throw new Error("Background removal model output format is not supported.");
-  }
-
-  if (candidate.url) {
-    const response = await fetch(candidate.url, { cache: "no-store" });
-    if (!response.ok) {
-      throw new Error(`Failed to download extracted image: ${response.status} ${response.statusText}`);
-    }
-
-    const arrayBuffer = await response.arrayBuffer();
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      mimeType: candidate.mimeType,
-    };
-  }
-
-  if (!candidate.base64) {
-    throw new Error("Background removal model returned empty image data.");
-  }
-
-  return {
-    buffer: Buffer.from(candidate.base64, "base64"),
-    mimeType: candidate.mimeType,
   };
 }
 
