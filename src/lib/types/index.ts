@@ -242,6 +242,7 @@ export interface SpatialAnalysis {
   floor_material: string | null;
   wall_color: string | null;
   lighting_direction: string | null;
+  shooting_direction?: string | null;
   camera_view?: CameraView | null;
   available_spaces: AvailableSpace[];
   existing_furniture: ExistingFurniture[];
