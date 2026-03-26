@@ -373,20 +373,24 @@ export default function FurnishingPlanPageClient({
       !formState.imageUrl.trim() ||
       !formState.widthMm.trim() ||
       !formState.depthMm.trim() ||
-      !formState.heightMm.trim() ||
-      !formState.price.trim()
+      !formState.heightMm.trim()
     ) {
-      toast.error("请完整填写名称、图片 URL、尺寸和价格");
+      toast.error("请完整填写名称、图片 URL 和尺寸信息");
       return;
     }
 
     const widthMm = Number(formState.widthMm);
     const depthMm = Number(formState.depthMm);
     const heightMm = Number(formState.heightMm);
-    const price = Number(formState.price);
+    const price = formState.price.trim() ? Number(formState.price) : null;
 
-    if ([widthMm, depthMm, heightMm, price].some((value) => !Number.isFinite(value) || value <= 0)) {
-      toast.error("尺寸和价格必须是大于 0 的数字");
+    if ([widthMm, depthMm, heightMm].some((value) => !Number.isFinite(value) || value <= 0)) {
+      toast.error("尺寸必须是大于 0 的数字");
+      return;
+    }
+
+    if (price != null && (!Number.isFinite(price) || price <= 0)) {
+      toast.error("价格填写时必须是大于 0 的数字");
       return;
     }
 
@@ -755,7 +759,7 @@ export default function FurnishingPlanPageClient({
           <DialogHeader>
             <DialogTitle>快速手动添加商品</DialogTitle>
             <DialogDescription>
-              先把名称、图片 URL、尺寸和价格补进去，确保这条端到端流程能跑通。
+              先填写名称、品类、图片 URL 和尺寸，价格与来源链接可选。
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 md:grid-cols-2">
@@ -793,7 +797,7 @@ export default function FurnishingPlanPageClient({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="item-price">价格</Label>
+              <Label htmlFor="item-price">价格（选填）</Label>
               <Input
                 id="item-price"
                 inputMode="numeric"
@@ -801,7 +805,7 @@ export default function FurnishingPlanPageClient({
                 onChange={(event) =>
                   setFormState((current) => ({ ...current, price: event.target.value }))
                 }
-                placeholder="例如：5999"
+                placeholder="例如：5999（选填）"
               />
             </div>
 

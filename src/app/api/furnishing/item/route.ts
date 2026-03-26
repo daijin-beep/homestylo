@@ -1,9 +1,47 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
 import { getOwnedPlanRecord } from "@/lib/furnishing/ownership";
 import { recalculatePlanCurrentTotal } from "@/lib/furnishing/planTotals";
+import { createClient } from "@/lib/supabase/server";
 
-// POST /api/furnishing/item - add item to plan
+interface CreateFurnishingItemBody {
+  plan_id?: string;
+  category?: string;
+  custom_name?: string;
+  custom_image_url?: string;
+  custom_width_mm?: number;
+  custom_depth_mm?: number;
+  custom_height_mm?: number;
+  price?: number;
+  custom_source_url?: string;
+  source?: "user_uploaded";
+}
+
+function parseRequiredPositiveNumber(label: string, value: unknown) {
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive number.`);
+  }
+
+  return parsed;
+}
+
+function parseOptionalPositiveNumber(label: string, value: unknown) {
+  if (value == null || value === "") {
+    return null;
+  }
+
+  const parsed =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive number when provided.`);
+  }
+
+  return parsed;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const supabase = await createClient();
@@ -16,29 +54,38 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const body = await request.json();
-    const {
-      plan_id,
-      category,
-      source = "user_uploaded",
-      product_id,
-      custom_name,
-      custom_image_url,
-      custom_source_url,
-      custom_width_mm,
-      custom_depth_mm,
-      custom_height_mm,
-      price,
-    } = body as Record<string, unknown>;
+    const body = (await request.json()) as CreateFurnishingItemBody;
+    const planId = body.plan_id?.trim();
+    const category = body.category?.trim();
+    const customName = body.custom_name?.trim();
+    const customImageUrl = body.custom_image_url?.trim();
+    const customSourceUrl = body.custom_source_url?.trim() || null;
+    const source = body.source ?? "user_uploaded";
 
-    if (!plan_id || !category) {
+    if (!planId || !category || !customName || !customImageUrl) {
       return NextResponse.json(
-        { success: false, error: "plan_id and category are required" },
+        {
+          success: false,
+          error:
+            "plan_id, category, custom_name, and custom_image_url are required.",
+        },
         { status: 400 },
       );
     }
 
-    const ownedPlan = await getOwnedPlanRecord(supabase, user.id, String(plan_id));
+    if (source !== "user_uploaded") {
+      return NextResponse.json(
+        { success: false, error: 'source must be "user_uploaded".' },
+        { status: 400 },
+      );
+    }
+
+    const customWidthMm = parseRequiredPositiveNumber("custom_width_mm", body.custom_width_mm);
+    const customDepthMm = parseRequiredPositiveNumber("custom_depth_mm", body.custom_depth_mm);
+    const customHeightMm = parseRequiredPositiveNumber("custom_height_mm", body.custom_height_mm);
+    const price = parseOptionalPositiveNumber("price", body.price);
+
+    const ownedPlan = await getOwnedPlanRecord(supabase, user.id, planId);
 
     if (!ownedPlan) {
       return NextResponse.json({ success: false, error: "Plan not found" }, { status: 404 });
@@ -47,42 +94,45 @@ export async function POST(request: NextRequest) {
     const { data: existingItems } = await supabase
       .from("furnishing_plan_items")
       .select("sort_order")
-      .eq("plan_id", String(plan_id))
+      .eq("plan_id", planId)
       .order("sort_order", { ascending: false })
       .limit(1);
 
     const nextOrder =
       existingItems && existingItems.length > 0 ? existingItems[0].sort_order + 1 : 0;
 
-    const normalizedSource = String(source);
     const { data: item, error } = await supabase
       .from("furnishing_plan_items")
       .insert({
-        plan_id,
+        plan_id: planId,
         category,
-        source: normalizedSource,
-        locked: normalizedSource === "user_uploaded",
-        product_id: product_id || null,
-        custom_name: custom_name || null,
-        custom_image_url: custom_image_url || null,
-        custom_source_url: custom_source_url || null,
-        custom_width_mm: custom_width_mm || null,
-        custom_depth_mm: custom_depth_mm || null,
-        custom_height_mm: custom_height_mm || null,
-        price: price || null,
+        source,
+        locked: true,
+        product_id: null,
+        custom_name: customName,
+        custom_image_url: customImageUrl,
+        custom_source_url: customSourceUrl,
+        custom_width_mm: customWidthMm,
+        custom_depth_mm: customDepthMm,
+        custom_height_mm: customHeightMm,
+        price,
         sort_order: nextOrder,
       })
       .select()
       .single();
 
-    if (error) {
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (error || !item) {
+      return NextResponse.json(
+        { success: false, error: error?.message ?? "Failed to create item." },
+        { status: 500 },
+      );
     }
 
-    await recalculatePlanCurrentTotal(supabase, String(plan_id));
+    await recalculatePlanCurrentTotal(supabase, planId);
 
     return NextResponse.json({ success: true, data: item }, { status: 201 });
   } catch (error) {
-    return NextResponse.json({ success: false, error: String(error) }, { status: 500 });
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ success: false, error: message }, { status: 400 });
   }
 }
